@@ -1,13 +1,27 @@
 //! Connection registry — tracks all open connections by UUID.
+//!
+//! `DynConnection` is the object-safe async interface stored in the registry.
+//! `ConnectionAdapter<C>` wraps any concrete `Connection` impl into a `DynConnection`.
 
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use dbench_core::{query::Query, result::QueryResult, schema::DatabaseSchema, types::ConnectionInfo, CatalystError, Result};
+use dbench_core::{
+    connection::Connection,
+    query::Query,
+    result::QueryResult,
+    schema::DatabaseSchema,
+    types::ConnectionInfo,
+    CatalystError, Result,
+};
 use dashmap::DashMap;
 use uuid::Uuid;
 
-/// Object-safe async connection interface (dyn-safe via async_trait).
+// ---------------------------------------------------------------------------
+// DynConnection — object-safe async trait
+// ---------------------------------------------------------------------------
+
+/// Object-safe async connection interface (via `async_trait`).
 #[async_trait]
 pub trait DynConnection: Send + Sync {
     fn info(&self) -> &ConnectionInfo;
@@ -19,26 +33,63 @@ pub trait DynConnection: Send + Sync {
 
 pub type BoxConnection = Box<dyn DynConnection>;
 
+// ---------------------------------------------------------------------------
+// ConnectionAdapter — bridges Connection → DynConnection
+// ---------------------------------------------------------------------------
+
+/// Wraps any `Connection` impl so it can be stored as `BoxConnection`.
+pub struct ConnectionAdapter<C>(pub C);
+
+#[async_trait]
+impl<C> DynConnection for ConnectionAdapter<C>
+where
+    C: Connection + Send + Sync + 'static,
+{
+    fn info(&self) -> &ConnectionInfo { self.0.info() }
+    fn is_alive(&self) -> bool { self.0.is_alive() }
+
+    async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
+        self.0.execute(query).await
+    }
+
+    async fn inspect_schema(&mut self) -> Result<DatabaseSchema> {
+        self.0.inspect_schema().await
+    }
+
+    async fn ping(&mut self) -> Result<Duration> {
+        self.0.ping().await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ConnectionRegistry
+// ---------------------------------------------------------------------------
+
 /// Thread-safe registry of all active connections.
+///
+/// Shared via `Arc<ConnectionRegistry>` between `AppState` and `QueryExecutor`.
+#[derive(Default)]
 pub struct ConnectionRegistry {
-    connections: Arc<DashMap<Uuid, Arc<tokio::sync::Mutex<BoxConnection>>>>,
-    infos: Arc<DashMap<Uuid, ConnectionInfo>>,
+    connections: DashMap<Uuid, Arc<tokio::sync::Mutex<BoxConnection>>>,
+    infos: DashMap<Uuid, ConnectionInfo>,
 }
 
 impl ConnectionRegistry {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            connections: Arc::new(DashMap::new()),
-            infos: Arc::new(DashMap::new()),
-        }
+        Self::default()
     }
 
-    /// Register a connection, returns its UUID.
-    pub fn register(&self, conn: BoxConnection) -> Uuid {
+    /// Wrap and register a concrete connection. Returns the connection UUID.
+    pub fn register<C>(&self, conn: C) -> Uuid
+    where
+        C: Connection + Send + Sync + 'static,
+    {
         let id = conn.info().id;
         let info = conn.info().clone();
-        self.connections.insert(id, Arc::new(tokio::sync::Mutex::new(conn)));
+        let boxed: BoxConnection = Box::new(ConnectionAdapter(conn));
+        self.connections
+            .insert(id, Arc::new(tokio::sync::Mutex::new(boxed)));
         self.infos.insert(id, info);
         tracing::debug!(conn_id = %id, "Connection registered");
         id
@@ -46,9 +97,11 @@ impl ConnectionRegistry {
 
     /// Remove a connection by ID.
     pub fn remove(&self, id: Uuid) -> Result<()> {
-        self.connections.remove(&id).ok_or_else(|| CatalystError::ConnectionLost {
-            reason: format!("connection {id} not found"),
-        })?;
+        self.connections
+            .remove(&id)
+            .ok_or_else(|| CatalystError::ConnectionLost {
+                reason: format!("connection {id} not found"),
+            })?;
         self.infos.remove(&id);
         Ok(())
     }
@@ -67,8 +120,4 @@ impl ConnectionRegistry {
 
     #[must_use]
     pub fn is_empty(&self) -> bool { self.connections.is_empty() }
-}
-
-impl Default for ConnectionRegistry {
-    fn default() -> Self { Self::new() }
 }

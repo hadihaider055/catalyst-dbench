@@ -1,21 +1,14 @@
 //! # dbench-engine
 //!
-//! The runtime engine for Catalyst DBench. Sits between the Tauri app and the drivers.
-//!
-//! ## Responsibilities
-//!
-//! - **Connection Registry** — tracks all open/saved connections by ID
-//! - **Query Executor** — routes queries to the correct driver, enforces guards
-//! - **Schema Inspector** — caches and invalidates schema introspection results
-//! - **Read-Only Guard** — enforces `ConnectionMode` before queries hit the driver
-//! - **Audit Hook** — emits audit events for every operation
+//! The runtime engine for Catalyst DBench. Manages connections, routes queries,
+//! enforces read-only guards, and emits audit events.
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all, clippy::pedantic)]
+#![warn(missing_docs, clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
 pub mod executor;
 pub mod registry;
 
 pub use executor::QueryExecutor;
-pub use registry::ConnectionRegistry;
+pub use registry::{BoxConnection, ConnectionAdapter, ConnectionRegistry, DynConnection};

@@ -1,44 +1,35 @@
-//! Query executor — routes queries to connections with guards and audit hooks.
+//! Query executor — routes queries to connections with audit hooks.
+
+use std::sync::Arc;
 
 use dbench_core::{
     error::CatalystError,
     query::Query,
     result::QueryResult,
     schema::DatabaseSchema,
-    types::ConnectionMode,
     Result,
 };
-use dbench_security::audit::{AuditEvent, AuditLogger};
+use dbench_security::{
+    audit::{AuditEvent, AuditLogger},
+    crypto::sha256_hex,
+};
 use uuid::Uuid;
 
 use crate::registry::ConnectionRegistry;
 
 /// Routes queries to connections, enforces guards, and emits audit events.
 pub struct QueryExecutor {
-    registry: ConnectionRegistry,
+    registry: Arc<ConnectionRegistry>,
     audit: AuditLogger,
 }
 
 impl QueryExecutor {
-    /// Create a new executor backed by the given registry and audit logger.
     #[must_use]
-    pub fn new(registry: ConnectionRegistry, audit: AuditLogger) -> Self {
+    pub fn new(registry: Arc<ConnectionRegistry>, audit: AuditLogger) -> Self {
         Self { registry, audit }
     }
 
     /// Execute a query on the connection identified by `conn_id`.
-    ///
-    /// # Guards applied (in order)
-    /// 1. Connection must be registered and alive.
-    /// 2. Read-only mode: rejects write queries before they reach the driver.
-    /// 3. (Future) Query size limit guard.
-    ///
-    /// After execution, an audit event is emitted regardless of success/failure.
-    ///
-    /// # Errors
-    /// - [`CatalystError::ConnectionLost`] — connection not in registry
-    /// - [`CatalystError::ReadOnlyViolation`] — write attempted on read-only connection
-    /// - [`CatalystError::QueryFailed`] — driver returned an error
     pub async fn execute(&self, conn_id: Uuid, query: Query) -> Result<QueryResult> {
         let conn_handle = self.registry.get(conn_id).ok_or_else(|| {
             CatalystError::ConnectionLost {
@@ -47,39 +38,40 @@ impl QueryExecutor {
         })?;
 
         let start = std::time::Instant::now();
-        let query_hash = dbench_security::crypto::sha256_hex(query.text.as_bytes());
+        let query_hash = sha256_hex(query.text.as_bytes());
 
         let mut conn = conn_handle.lock().await;
-
-        // Read-only guard (double-check at engine level, drivers also check).
-        if conn.info().tls_active {
-            // Connection is active; proceed
-        }
-
-        // TODO: Call conn.execute(&query) once AnyConnection has an execute method.
-        // For now this is the scaffold with full audit instrumentation.
+        let result = conn.execute(&query).await;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        // Emit audit event.
-        let _ = self
-            .audit
-            .log(AuditEvent::QueryExecute {
-                conn_id: conn_id.to_string(),
-                query_hash: format!("sha256:{query_hash}"),
-                rows_returned: Some(0),
-                rows_affected: None,
-                duration_ms,
-            })
-            .await;
+        match &result {
+            Ok(r) => {
+                let _ = self
+                    .audit
+                    .log(AuditEvent::QueryExecute {
+                        conn_id: conn_id.to_string(),
+                        query_hash: format!("sha256:{query_hash}"),
+                        rows_returned: Some(r.rows.len() as u64),
+                        rows_affected: r.rows_affected,
+                        duration_ms,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let _ = self
+                    .audit
+                    .log(AuditEvent::QueryFailed {
+                        conn_id: conn_id.to_string(),
+                        query_hash: format!("sha256:{query_hash}"),
+                        error: e.to_string(),
+                        duration_ms,
+                    })
+                    .await;
+            }
+        }
 
-        Ok(QueryResult {
-            columns: vec![],
-            rows: vec![],
-            rows_affected: Some(0),
-            duration_ms,
-            explain_plan: None,
-        })
+        result
     }
 
     /// Inspect the schema for a connection.
@@ -90,24 +82,17 @@ impl QueryExecutor {
             }
         })?;
 
-        let conn = conn_handle.lock().await;
-        let db_type = conn.info().db_type;
-        let object_count = 0u64; // populated after real implementation
+        let mut conn = conn_handle.lock().await;
+        let schema = conn.inspect_schema().await?;
 
         let _ = self
             .audit
             .log(AuditEvent::SchemaInspected {
                 conn_id: conn_id.to_string(),
-                object_count,
+                object_count: schema.objects.len() as u64,
             })
             .await;
 
-        // TODO: conn.inspect_schema().await
-        Ok(DatabaseSchema {
-            name: conn.info().database.clone(),
-            db_type,
-            server_version: conn.info().server_version.clone().unwrap_or("unknown".into()),
-            objects: vec![],
-        })
+        Ok(schema)
     }
 }
