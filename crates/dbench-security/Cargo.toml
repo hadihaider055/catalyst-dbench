@@ -1,0 +1,66 @@
+[package]
+name = "dbench-security"
+version = "0.1.0"
+edition = "2021"
+authors = ["Catalyst DBench Contributors"]
+description = "Security layer for DBench — credential management, transport security, audit logging, and data masking"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dbench-io/dbench"
+
+[dependencies]
+# Core async
+tokio = { version = "1", features = ["full"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Credential security
+keyring = "2"                    # OS keychain (macOS/Windows/Linux)
+secrecy = { version = "0.8", features = ["serde"] }  # Secret<T> wrapper
+zeroize = { version = "1", features = ["derive", "zeroize_derive"] }  # Secure memory zeroing
+
+# Cryptography
+aes-gcm = "0.10"                 # AES-256-GCM symmetric encryption
+argon2 = "0.5"                   # Argon2id key derivation
+sha2 = "0.10"                    # SHA-256/SHA-512 hashing
+rand = { version = "0.8", features = ["getrandom"] }  # CSPRNG
+base64 = "0.21"                  # Base64 encoding for key material
+hex = "0.4"                      # Hex encoding for hashes
+hostname = "0.3"               # OS hostname for audit log
+
+# TLS
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"             # PEM certificate parsing
+webpki-roots = "0.26"            # Mozilla root certificates
+
+# SSH tunneling
+ssh2 = "0.9"                     # libssh2 bindings
+
+# Logging (with sensitive field filtering)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# UUID for audit entries
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Config
+regex = "1"
+
+[features]
+default = ["vault", "aws"]
+vault = []                       # HashiCorp Vault secrets integration
+aws = []                         # AWS Secrets Manager integration
+azure = []                       # Azure Key Vault integration
+enterprise = ["vault", "aws", "azure"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = "3"
