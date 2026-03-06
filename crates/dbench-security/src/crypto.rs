@@ -13,8 +13,9 @@ use argon2::{
     password_hash::{rand_core::RngCore, SaltString},
     Argon2, Params,
 };
+use base64::Engine as _;
 use sha2::{Digest, Sha256, Sha512};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::ZeroizeOnDrop;
 
 use crate::{CryptoError, Result, SecurityError};
 

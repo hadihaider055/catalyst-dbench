@@ -44,11 +44,7 @@ pub mod mask;
 pub mod ssh;
 pub mod tls;
 
-#[cfg(feature = "vault")]
-pub mod vault;
-
-#[cfg(feature = "aws")]
-pub mod aws_secrets;
+// vault and aws_secrets modules are placeholders — files created when implementing those integrations.
 
 // Re-export the most commonly used types at the crate root.
 pub use audit::{AuditEvent, AuditLogger};

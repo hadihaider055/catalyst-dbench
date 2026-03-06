@@ -85,7 +85,7 @@ impl KeychainStore {
             .map_err(|e| KeychainError::Backend(e.to_string()))?;
 
         let password = entry.get_password().map_err(|e| match e {
-            keyring::Error::NoEntry | keyring::Error::ItemNotFound => {
+            keyring::Error::NoEntry => {
                 KeychainError::NotFound {
                     key: self.account.clone(),
                 }
@@ -107,7 +107,7 @@ impl KeychainStore {
         let entry = keyring::Entry::new(&self.service, &self.account)
             .map_err(|e| KeychainError::Backend(e.to_string()))?;
 
-        match entry.delete_credential() {
+        match entry.delete_password() {
             Ok(()) => {
                 tracing::debug!(account = %self.account, "Credential deleted from keychain");
                 Ok(())
