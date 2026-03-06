@@ -1,0 +1,60 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "feat",     "release": "minor" },
+          { "type": "fix",      "release": "patch" },
+          { "type": "perf",     "release": "patch" },
+          { "type": "security", "release": "patch" },
+          { "type": "revert",   "release": "patch" },
+          { "breaking": true,   "release": "major" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat",     "section": "Features" },
+            { "type": "fix",      "section": "Bug Fixes" },
+            { "type": "perf",     "section": "Performance" },
+            { "type": "security", "section": "Security" },
+            { "type": "docs",     "section": "Documentation" },
+            { "type": "refactor", "section": "Refactoring", "hidden": true },
+            { "type": "test",     "section": "Tests",       "hidden": true },
+            { "type": "chore",    "section": "Chores",      "hidden": true }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/changelog",
+      { "changelogFile": "CHANGELOG.md" }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "target/release/bundle/dmg/*.dmg",             "label": "macOS (Intel) DMG" },
+          { "path": "target/aarch64-apple-darwin/release/bundle/dmg/*.dmg", "label": "macOS (Apple Silicon) DMG" },
+          { "path": "target/release/bundle/deb/*.deb",             "label": "Linux DEB" },
+          { "path": "target/release/bundle/appimage/*.AppImage",   "label": "Linux AppImage" },
+          { "path": "target/release/bundle/msi/*.msi",             "label": "Windows MSI" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md"],
+        "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ]
+  ]
+}
