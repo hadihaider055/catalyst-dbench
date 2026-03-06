@@ -14,7 +14,7 @@ const SUPPORTED: DatabaseType[] = [
 interface Props { onClose: () => void; existing?: SavedConnection }
 
 export default function ConnectionDialog({ onClose, existing }: Props) {
-  const { upsertSavedConnection, addActiveConnection } = useAppStore();
+  const { upsertSavedConnection } = useAppStore();
 
   const [dbType, setDbType] = useState<DatabaseType>(existing?.db_type ?? "postgres");
   const [name, setName] = useState(existing?.name ?? "");
@@ -38,8 +38,8 @@ export default function ConnectionDialog({ onClose, existing }: Props) {
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
     try {
-      await testConnection({ name, db_type: dbType, host, port: parseInt(port), database, username, tls_enabled: tls, read_only: readOnly });
-      setTestResult({ ok: true, msg: "Connection successful" });
+      const msg = await testConnection({ name, db_type: dbType, host, port: parseInt(port), database, username, password, tls_enabled: tls, read_only: readOnly });
+      setTestResult({ ok: true, msg });
     } catch (e) {
       setTestResult({ ok: false, msg: String(e) });
     }

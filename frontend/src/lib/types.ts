@@ -42,7 +42,7 @@ export interface ConnectionPayload {
   port?: number;
   database: string;
   username: string;
-  connection_id?: string;
+  password?: string;
   tls_enabled: boolean;
   read_only: boolean;
 }

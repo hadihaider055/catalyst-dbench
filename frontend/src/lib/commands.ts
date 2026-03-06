@@ -21,12 +21,12 @@ export const addConnection = (
 
 export const testConnection = (
   payload: ConnectionPayload
-): Promise<ConnectionInfo> => invoke("test_connection", { payload });
+): Promise<string> => invoke("test_connection", { payload });
 
 export const openConnection = (
-  connectionId: string
-): Promise<ConnectionInfo> =>
-  invoke("open_connection", { connectionId });
+  payload: ConnectionPayload
+): Promise<{ connection_id: string; info: ConnectionInfo }> =>
+  invoke("open_connection", { payload });
 
 export const closeConnection = (connectionId: string): Promise<void> =>
   invoke("close_connection", { connectionId });

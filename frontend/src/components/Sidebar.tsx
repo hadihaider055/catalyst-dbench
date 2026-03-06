@@ -6,7 +6,7 @@ import type { SavedConnection } from "@/lib/types";
 import ConnectionDialog from "./ConnectionDialog";
 
 export default function Sidebar() {
-  const { savedConnections, activeConnections, openTab, removeActiveConnection, selectedConnectionId, setSelectedConnection } = useAppStore();
+  const { savedConnections, activeConnections, openTab, selectedConnectionId, setSelectedConnection } = useAppStore();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -113,7 +113,7 @@ function ConnectionItem({ conn, active, selected, expanded, onExpand, onSelect, 
         <span className="flex-1 text-xs text-text-primary truncate font-medium">{conn.name}</span>
 
         {/* Status indicators */}
-        {conn.tls_enabled && <Lock size={10} className="text-text-muted flex-shrink-0" title="TLS enabled" />}
+        {conn.tls_enabled && <Lock size={10} className="text-text-muted flex-shrink-0" aria-label="TLS enabled" />}
         {conn.read_only && <span className="text-2xs text-yellow-500 flex-shrink-0">RO</span>}
 
         {/* Active indicator */}
@@ -146,7 +146,7 @@ function ConnectionItem({ conn, active, selected, expanded, onExpand, onSelect, 
   );
 }
 
-function SchemaPlaceholder({ conn }: { conn: SavedConnection }) {
+function SchemaPlaceholder(_: { conn: SavedConnection }) {
   return (
     <div className="flex items-center gap-1.5 px-2 py-1 text-text-muted">
       <RefreshCw size={10} className="animate-spin" />

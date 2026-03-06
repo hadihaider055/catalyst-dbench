@@ -1,6 +1,6 @@
-import { Shield, Wifi, Database, Lock } from "lucide-react";
+import { Shield, Database, Lock } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
-import { cn, dbIcon } from "@/lib/utils";
+import { dbIcon } from "@/lib/utils";
 
 export default function StatusBar() {
   const { activeConnections, selectedConnectionId, tabs, activeTabId } = useAppStore();
