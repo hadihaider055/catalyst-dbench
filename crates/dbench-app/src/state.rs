@@ -1,14 +1,16 @@
-//! Application state shared across Tauri commands.
+//! Application state shared across all Tauri commands.
+
+use std::sync::Arc;
 
 use dbench_engine::{ConnectionRegistry, QueryExecutor};
 use dbench_security::audit::AuditLogger;
 
-/// Global application state. Held by Tauri and injected into every command.
+/// Global application state. Injected into every Tauri command via `tauri::State`.
 pub struct AppState {
-    /// All active database connections.
-    pub registry: ConnectionRegistry,
+    /// Shared connection registry (both AppState and QueryExecutor use the same Arc).
+    pub registry: Arc<ConnectionRegistry>,
     /// Query executor with audit logging.
     pub executor: QueryExecutor,
-    /// Audit logger (also used for app-level events).
+    /// Audit logger for app-level events.
     pub audit: AuditLogger,
 }

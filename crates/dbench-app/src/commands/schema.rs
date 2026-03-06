@@ -10,11 +10,12 @@ use crate::state::AppState;
 #[tauri::command]
 pub async fn get_schema(
     state: State<'_, AppState>,
-    connection_id: Uuid,
+    connection_id: String,
 ) -> Result<DatabaseSchema, String> {
+    let conn_id = Uuid::parse_str(&connection_id).map_err(|e| e.to_string())?;
     state
         .executor
-        .inspect_schema(connection_id)
+        .inspect_schema(conn_id)
         .await
         .map_err(|e| e.to_string())
 }

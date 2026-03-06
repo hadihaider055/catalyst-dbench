@@ -9,7 +9,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryPayload {
-    pub connection_id: Uuid,
+    pub connection_id: String,
     pub sql: String,
     pub params: Option<Vec<serde_json::Value>>,
     pub timeout_ms: Option<u64>,
@@ -22,13 +22,14 @@ pub async fn execute_query(
     state: State<'_, AppState>,
     payload: QueryPayload,
 ) -> Result<QueryResult, String> {
-    // Input validation
     if payload.sql.trim().is_empty() {
         return Err("Query cannot be empty".into());
     }
     if payload.sql.len() > 1_000_000 {
         return Err("Query exceeds maximum length of 1MB".into());
     }
+
+    let conn_id = Uuid::parse_str(&payload.connection_id).map_err(|e| e.to_string())?;
 
     let mut query = Query::new(payload.sql);
     if let Some(ms) = payload.timeout_ms {
@@ -40,7 +41,7 @@ pub async fn execute_query(
 
     state
         .executor
-        .execute(payload.connection_id, query)
+        .execute(conn_id, query)
         .await
         .map_err(|e| e.to_string())
 }
@@ -49,7 +50,7 @@ pub async fn execute_query(
 #[tauri::command]
 pub async fn execute_batch(
     state: State<'_, AppState>,
-    connection_id: Uuid,
+    connection_id: String,
     queries: Vec<String>,
 ) -> Result<Vec<QueryResult>, String> {
     if queries.is_empty() {
@@ -59,12 +60,13 @@ pub async fn execute_batch(
         return Err("Batch size cannot exceed 100 queries".into());
     }
 
+    let conn_id = Uuid::parse_str(&connection_id).map_err(|e| e.to_string())?;
+
     let mut results = Vec::with_capacity(queries.len());
     for sql in queries {
-        let q = Query::new(sql);
         let result = state
             .executor
-            .execute(connection_id, q)
+            .execute(conn_id, Query::new(sql))
             .await
             .map_err(|e| e.to_string())?;
         results.push(result);
