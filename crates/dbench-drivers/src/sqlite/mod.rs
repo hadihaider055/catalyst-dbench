@@ -161,11 +161,14 @@ impl Connection for SqliteConnection {
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
             let col_count = stmt.column_count();
-            let columns: Vec<Column> = (0..col_count).map(|i| {
-                let name = stmt.column_name(i).unwrap_or("?").to_string();
-                let decl = stmt.column_decltype(i).unwrap_or("TEXT").to_uppercase();
-                let col_type = sqlite_type_to_col_type(&decl);
-                Column { name, col_type, nullable: true, native_type: decl }
+            let col_meta: Vec<(String, String)> = stmt.columns().into_iter().map(|c| {
+                let name = c.name().to_string();
+                let decl = c.decl_type().unwrap_or("TEXT").to_uppercase();
+                (name, decl)
+            }).collect();
+            let columns: Vec<Column> = col_meta.iter().map(|(name, decl)| {
+                let col_type = sqlite_type_to_col_type(decl);
+                Column { name: name.clone(), col_type, nullable: true, native_type: decl.clone() }
             }).collect();
 
             let mut rows_out = vec![];

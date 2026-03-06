@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use dbench_core::{
     connection::Connection,
-    driver::Driver,
+    driver::{ConnectionConfig, Driver},
     error::CatalystError,
     query::Query,
     result::QueryResult,

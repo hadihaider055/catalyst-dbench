@@ -28,7 +28,7 @@
 //! 6. Register in `dbench-engine/src/registry.rs`
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all, clippy::pedantic)]
+#![warn(missing_docs, clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
 #[cfg(feature = "postgres")]
