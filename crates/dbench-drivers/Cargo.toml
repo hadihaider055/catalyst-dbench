@@ -1,0 +1,47 @@
+[package]
+name = "dbench-drivers"
+description = "Database driver implementations for DBench — PostgreSQL, MySQL, SQLite, MongoDB, Redis"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["postgres", "sqlite"]
+postgres = ["dep:tokio-postgres", "dep:postgres-types"]
+mysql = ["dep:sqlx"]
+sqlite = ["dep:rusqlite"]
+mongodb = ["dep:mongodb"]
+redis = ["dep:redis"]
+all = ["postgres", "mysql", "sqlite", "mongodb", "redis"]
+
+[dependencies]
+dbench-core = { workspace = true }
+dbench-security = { workspace = true }
+dbench-macros = { path = "../dbench-macros" }
+
+tokio = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+secrecy = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# PostgreSQL
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"], optional = true }
+postgres-types = { version = "0.2", features = ["derive"], optional = true }
+
+# MySQL
+sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-rustls", "chrono", "uuid", "json"], optional = true }
+
+# SQLite
+rusqlite = { version = "0.31", features = ["bundled", "chrono", "uuid"], optional = true }
+
+# MongoDB
+mongodb = { version = "2", optional = true }
+
+# Redis
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], optional = true }
