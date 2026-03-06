@@ -7,7 +7,7 @@ use crate::types::DatabaseType;
 #[non_exhaustive]
 pub enum CatalystError {
     /// Connection to the database failed.
-    #[error("Connection failed to {db_type} at {host}: {reason}")]
+    #[error("Connection failed to {db_type:?} at {host}: {reason}")]
     ConnectionFailed {
         db_type: DatabaseType,
         host: String,
@@ -15,7 +15,7 @@ pub enum CatalystError {
     },
 
     /// Authentication was rejected by the database server.
-    #[error("Authentication failed for user '{username}' on {db_type}: {reason}")]
+    #[error("Authentication failed for user '{username}' on {db_type:?}: {reason}")]
     AuthenticationFailed {
         db_type: DatabaseType,
         username: String,

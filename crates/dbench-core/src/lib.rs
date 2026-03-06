@@ -13,7 +13,7 @@
 //! - [`DatabaseType`] — enum of all supported database types
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all, clippy::pedantic)]
+#![warn(missing_docs, clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
 pub mod connection;
@@ -26,14 +26,14 @@ pub mod types;
 
 // Re-export primary types at the crate root.
 pub use connection::Connection;
-pub use driver::Driver;
+pub use driver::{ConnectionConfig, Driver};
 pub use error::CatalystError;
 pub use query::{Query, QueryParam};
 pub use result::{Column, ColumnType, QueryResult, Row, Value};
 pub use schema::{
     ColumnSchema, DatabaseSchema, IndexSchema, SchemaObject, TableSchema,
 };
-pub use types::{ConnectionConfig, ConnectionInfo, ConnectionMode, DatabaseType};
+pub use types::{ConnectionInfo, ConnectionMode, DatabaseType};
 
 /// Convenience result type for dbench-core operations.
 pub type Result<T> = std::result::Result<T, CatalystError>;
