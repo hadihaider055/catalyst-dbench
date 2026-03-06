@@ -1,0 +1,64 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.pnp
+.pnp.js
+
+# Tauri
+src-tauri/target/
+/dist/
+/dist-ssr/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+/logs/
+audit-*.jsonl
+
+# Build artifacts
+*.dmg
+*.app
+*.exe
+*.msi
+*.deb
+*.AppImage
+*.snap
+
+# Coverage
+/coverage/
+lcov.info
+tarpaulin-report.html
+
+# Secrets (never commit these)
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.secret
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.toolchain/
+target/
