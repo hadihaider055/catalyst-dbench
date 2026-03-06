@@ -1,0 +1,36 @@
+[package]
+name = "dbench-app"
+description = "Tauri v2 desktop application backend for Catalyst DBench"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "dbench"
+path = "src/main.rs"
+
+[dependencies]
+dbench-core = { workspace = true }
+dbench-security = { workspace = true }
+dbench-engine = { path = "../dbench-engine" }
+dbench-drivers = { path = "../dbench-drivers", features = ["all"] }
+
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-store = "2"      # Persistent key-value store for UI prefs
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
