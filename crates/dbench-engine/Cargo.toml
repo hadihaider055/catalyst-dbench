@@ -1,0 +1,29 @@
+[package]
+name = "dbench-engine"
+description = "Query execution engine, connection pooling, and driver registry for Catalyst DBench"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dbench-core = { workspace = true }
+dbench-security = { workspace = true }
+dbench-drivers = { path = "../dbench-drivers", features = ["postgres", "sqlite"] }
+
+tokio = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Connection pooling
+deadpool = { version = "0.12", features = ["managed", "rt_tokio_1"] }
+
+# Async utilities
+futures = "0.3"
+dashmap = "5"       # Concurrent HashMap for the connection registry
+async-trait = "0.1"  # Object-safe async traits
