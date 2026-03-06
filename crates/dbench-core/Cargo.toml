@@ -1,0 +1,24 @@
+[package]
+name = "dbench-core"
+description = "Core traits, types, and errors for the Catalyst DBench database IDE"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+hex = "0.4"
+dbench-security = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }

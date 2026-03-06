@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dbench-core",
+    "crates/dbench-macros",
+    "crates/dbench-security",
+    "crates/dbench-drivers",
+    "crates/dbench-engine",
+    "crates/dbench-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Catalyst DBench Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dbench-io/dbench"
+homepage = "https://dbench.dev"
+rust-version = "1.75"
+
+# Shared dependency versions — pin once, use everywhere.
+[workspace.dependencies]
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Security (re-exported by dbench-security)
+secrecy = { version = "0.8", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Internal crates
+dbench-core = { path = "crates/dbench-core" }
+dbench-macros = { path = "crates/dbench-macros" }
+dbench-security = { path = "crates/dbench-security" }
+dbench-drivers = { path = "crates/dbench-drivers" }
+dbench-engine = { path = "crates/dbench-engine" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+# Fast compile for tests while keeping reasonable optimization.
+[profile.test]
+opt-level = 1
