@@ -8,37 +8,39 @@ This document describes the complete security model for Catalyst DBench. Every l
 
 DBench is a local desktop application that holds credentials to production databases. The threats we protect against:
 
-| Threat | Mitigation |
-|--------|-----------|
-| Stolen credentials from disk | OS keychain; encrypted config |
-| Credentials leaked in logs | `secrecy::Secret<T>` type; log filtering |
-| Credentials in memory dumps | `zeroize` — zero memory on drop |
-| MITM on DB connection | TLS enforced; cert validation |
-| Remote host compromise | SSH tunneling; key-based auth |
-| Malicious query injection | Parameterized queries only |
-| UI XSS → IPC escalation | Tauri CSP; strict IPC allowlist |
-| Unauthorized DB writes | Read-only connection mode |
-| Tampered audit logs | Append-only; cryptographic chaining |
-| Secrets in exported data | Column masking; export confirmation |
+| Threat                       | Mitigation                               |
+| ---------------------------- | ---------------------------------------- |
+| Stolen credentials from disk | OS keychain; encrypted config            |
+| Credentials leaked in logs   | `secrecy::Secret<T>` type; log filtering |
+| Credentials in memory dumps  | `zeroize` — zero memory on drop          |
+| MITM on DB connection        | TLS enforced; cert validation            |
+| Remote host compromise       | SSH tunneling; key-based auth            |
+| Malicious query injection    | Parameterized queries only               |
+| UI XSS → IPC escalation      | Tauri CSP; strict IPC allowlist          |
+| Unauthorized DB writes       | Read-only connection mode                |
+| Tampered audit logs          | Append-only; cryptographic chaining      |
+| Secrets in exported data     | Column masking; export confirmation      |
 
 ---
 
 ## Layer 1 — Credential Security
 
 ### Storage
+
 All database credentials are stored **exclusively** in the OS keychain:
 
-| OS | Backend |
-|----|---------|
-| macOS | Keychain Services (via `security` framework) |
-| Windows | Windows Credential Manager |
-| Linux | Secret Service API (GNOME Keyring / KWallet) |
+| OS      | Backend                                      |
+| ------- | -------------------------------------------- |
+| macOS   | Keychain Services (via `security` framework) |
+| Windows | Windows Credential Manager                   |
+| Linux   | Secret Service API (GNOME Keyring / KWallet) |
 
 The `keyring` crate provides a cross-platform abstraction. Each credential is stored under a namespaced key: `catalyst/<connection_id>/password`.
 
-**Connection config files** (stored in `~/.config/catalyst/connections/`) contain everything *except* the password. They reference the keychain entry by connection ID.
+**Connection config files** (stored in `~/.config/catalyst/connections/`) contain everything _except_ the password. They reference the keychain entry by connection ID.
 
 ### Secret<T> Type
+
 All credential values are wrapped in `secrecy::Secret<T>`:
 
 ```rust
@@ -56,6 +58,7 @@ pub struct PostgresConfig {
 `Secret<T>` has no `Display`, no `Debug` output of the value, and `Clone` is disabled. You must explicitly call `.expose_secret()` at the exact point of use.
 
 ### Config File Encryption
+
 Connection config files that contain sensitive metadata (SSH private key paths, client cert paths) are encrypted with AES-256-GCM using a key derived from a machine-specific secret (hardware UUID + OS username, via PBKDF2).
 
 ---
@@ -63,12 +66,14 @@ Connection config files that contain sensitive metadata (SSH private key paths, 
 ## Layer 2 — Transport Security
 
 ### TLS
+
 - TLS 1.2 minimum enforced; TLS 1.3 preferred
 - Certificate validation **on by default**; disabling shows a prominent warning and requires typing "I understand the risks"
 - Uses `rustls` (pure Rust) where possible; falls back to native TLS via `native-tls` where required by the DB driver
 - SNI (Server Name Indication) enabled by default
 
 ### SSH Tunneling
+
 Many production databases are not exposed directly. Catalyst DBench supports SSH tunneling:
 
 ```
@@ -84,6 +89,7 @@ Many production databases are not exposed directly. Catalyst DBench supports SSH
 ```
 
 Supported authentication:
+
 - SSH key (Ed25519, RSA) — keys read from filesystem, passphrase via keychain
 - SSH agent forwarding
 - Password (discouraged, stored in keychain)
@@ -91,6 +97,7 @@ Supported authentication:
 Implementation: `ssh2` crate (libssh2 bindings).
 
 ### Certificate Pinning
+
 For enterprise use cases, certificate pinning can be configured per-connection to prevent MITM even with a compromised CA.
 
 ---
@@ -98,6 +105,7 @@ For enterprise use cases, certificate pinning can be configured per-connection t
 ## Layer 3 — Memory Security
 
 ### Zeroize on Drop
+
 All types holding sensitive values implement `Zeroize` and `ZeroizeOnDrop`:
 
 ```rust
@@ -112,6 +120,7 @@ pub struct PlaintextCredential {
 This ensures credentials do not linger in heap memory after use.
 
 ### No Sensitive Values in Logs
+
 The `tracing` subscriber is configured with a `SensitiveFilter` layer that scrubs known sensitive field names (`password`, `token`, `secret`, `key`, `credential`) from all log output.
 
 ```rust
@@ -124,6 +133,7 @@ impl<S: Subscriber> Layer<S> for SensitiveFieldFilter {
 ```
 
 ### Stack Allocation for Small Secrets
+
 Small secrets (passwords < 256 bytes) are stored on the stack when possible to avoid heap allocation and reduce the risk of memory scanning.
 
 ---
@@ -131,6 +141,7 @@ Small secrets (passwords < 256 bytes) are stored on the stack when possible to a
 ## Layer 4 — Application Security (Tauri)
 
 ### Content Security Policy
+
 Tauri's WebView has a strict CSP that prevents XSS from escalating to native IPC calls:
 
 ```json
@@ -142,6 +153,7 @@ Tauri's WebView has a strict CSP that prevents XSS from escalating to native IPC
 ```
 
 ### IPC Validation
+
 Every Tauri command validates its inputs before processing:
 
 ```rust
@@ -157,6 +169,7 @@ pub async fn execute_query(
 ```
 
 ### Capability-Based Permissions (Tauri v2)
+
 Tauri v2 uses a capability model. The frontend can only invoke explicitly listed commands. No wildcard permissions. Each capability is scoped to the minimum required.
 
 ---
@@ -164,6 +177,7 @@ Tauri v2 uses a capability model. The frontend can only invoke explicitly listed
 ## Layer 5 — Data Security
 
 ### Read-Only Connection Mode
+
 Connections can be flagged as read-only. The driver enforces this at the connection level (not just UI):
 
 - **PostgreSQL**: connects with `default_transaction_read_only = on`
@@ -180,6 +194,7 @@ pub enum ConnectionMode {
 ```
 
 ### No Query String Interpolation
+
 The query engine never builds queries by string concatenation with user values. All parameters go through the driver's parameterized query API:
 
 ```rust
@@ -192,6 +207,7 @@ let query = Query::new("SELECT * FROM users WHERE id = $1")
 ```
 
 ### Column Masking / PII Protection
+
 Columns can be tagged in connection config as sensitive (e.g., `ssn`, `credit_card`, `password_hash`). The engine masks these before sending results to the UI:
 
 ```rust
@@ -209,6 +225,7 @@ pub enum MaskMode {
 ```
 
 ### Export Confirmation
+
 Exporting query results shows a confirmation dialog listing how many rows and which columns (highlighting masked ones) will be exported. Export to disk is logged in the audit trail.
 
 ---
@@ -216,15 +233,17 @@ Exporting query results shows a confirmation dialog listing how many rows and wh
 ## Layer 6 — Audit & Compliance
 
 ### Audit Log Format
+
 Every significant action is written to an append-only audit log in structured JSON (NDJSON):
 
 ```json
-{"ts":"2025-01-15T10:23:41Z","event":"query.execute","conn_id":"pg-prod-01","db":"myapp","query_hash":"sha256:abc123","rows_returned":142,"duration_ms":23,"user":"hadihaider","host":"MacBook-Pro.local"}
-{"ts":"2025-01-15T10:24:01Z","event":"connection.opened","conn_id":"pg-prod-01","db_type":"postgres","host":"db.example.com","port":5432,"tls":true,"user":"hadihaider"}
-{"ts":"2025-01-15T10:25:00Z","event":"data.exported","conn_id":"pg-prod-01","format":"csv","rows":142,"destination":"/Users/hadihaider/Downloads/export.csv","user":"hadihaider"}
+{"ts":"2026-01-15T10:23:41Z","event":"query.execute","conn_id":"pg-prod-01","db":"myapp","query_hash":"sha256:abc123","rows_returned":142,"duration_ms":23,"user":"hadihaider","host":"MacBook-Pro.local"}
+{"ts":"2026-01-15T10:24:01Z","event":"connection.opened","conn_id":"pg-prod-01","db_type":"postgres","host":"db.example.com","port":5432,"tls":true,"user":"hadihaider"}
+{"ts":"2026-01-15T10:25:00Z","event":"data.exported","conn_id":"pg-prod-01","format":"csv","rows":142,"destination":"/Users/hadihaider/Downloads/export.csv","user":"hadihaider"}
 ```
 
 **Audit events captured:**
+
 - `connection.opened` / `connection.closed`
 - `query.execute` (query hash, not raw query, to avoid logging PII in queries)
 - `query.failed`
@@ -234,13 +253,20 @@ Every significant action is written to an append-only audit log in structured JS
 - `app.started` / `app.stopped`
 
 ### Tamper-Evident Log Chaining
+
 Each log entry includes the SHA-256 hash of the previous entry, forming a chain. Any tampering with historical entries is detectable.
 
 ```json
-{"ts":"...","event":"...","prev_hash":"sha256:abc123","hash":"sha256:def456"}
+{
+  "ts": "...",
+  "event": "...",
+  "prev_hash": "sha256:abc123",
+  "hash": "sha256:def456"
+}
 ```
 
 ### Log Storage
+
 - Default location: `~/.local/share/catalyst/audit/audit-YYYY-MM.jsonl`
 - Monthly rotation
 - Configurable retention (default: 90 days)
@@ -252,14 +278,14 @@ Each log entry includes the SHA-256 hash of the previous entry, forming a chain.
 
 For teams and enterprise users, Catalyst DBench can fetch credentials from external secrets managers instead of the OS keychain:
 
-| Provider | Auth Method |
-|----------|------------|
-| HashiCorp Vault | Token, AppRole, OIDC |
-| AWS Secrets Manager | IAM role, access key |
-| Azure Key Vault | Managed identity, service principal |
-| GCP Secret Manager | Service account |
-| 1Password (personal) | 1Password CLI (`op`) |
-| Bitwarden (personal) | Bitwarden CLI (`bw`) |
+| Provider             | Auth Method                         |
+| -------------------- | ----------------------------------- |
+| HashiCorp Vault      | Token, AppRole, OIDC                |
+| AWS Secrets Manager  | IAM role, access key                |
+| Azure Key Vault      | Managed identity, service principal |
+| GCP Secret Manager   | Service account                     |
+| 1Password (personal) | 1Password CLI (`op`)                |
+| Bitwarden (personal) | Bitwarden CLI (`bw`)                |
 
 Connection configs reference secrets by path:
 
@@ -306,13 +332,13 @@ Before submitting a PR that touches security-sensitive code:
 
 ## Cryptographic Primitives Used
 
-| Purpose | Algorithm | Crate |
-|---------|-----------|-------|
-| Symmetric encryption | AES-256-GCM | `aes-gcm` |
-| Key derivation | Argon2id | `argon2` |
-| Hashing | SHA-256, SHA-512 | `sha2` |
-| Secure random | CSPRNG (OS-backed) | `rand` + `getrandom` |
-| TLS | TLS 1.3 / 1.2 | `rustls` |
-| SSH | Ed25519, RSA-4096 | `ssh2` |
-| Memory zeroing | — | `zeroize` |
-| Secret wrapping | — | `secrecy` |
+| Purpose              | Algorithm          | Crate                |
+| -------------------- | ------------------ | -------------------- |
+| Symmetric encryption | AES-256-GCM        | `aes-gcm`            |
+| Key derivation       | Argon2id           | `argon2`             |
+| Hashing              | SHA-256, SHA-512   | `sha2`               |
+| Secure random        | CSPRNG (OS-backed) | `rand` + `getrandom` |
+| TLS                  | TLS 1.3 / 1.2      | `rustls`             |
+| SSH                  | Ed25519, RSA-4096  | `ssh2`               |
+| Memory zeroing       | —                  | `zeroize`            |
+| Secret wrapping      | —                  | `secrecy`            |

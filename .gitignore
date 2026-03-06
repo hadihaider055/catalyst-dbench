@@ -62,3 +62,4 @@ ehthumbs.db
 Desktop.ini
 .toolchain/
 target/
+.dev-notes/
