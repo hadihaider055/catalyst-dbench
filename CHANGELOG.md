@@ -1,3 +1,33 @@
+## 1.0.0 (2026-03-07)
+
+### Features
+
+* **app:** Tauri v2 IPC commands — connections, query, schema, app info ([1f11d8d](https://github.com/hadihaider055/catalyst-dbench/commit/1f11d8d3c4310e0ae833b758783acb82b76acc6f))
+* **app:** wire postgres and sqlite to ipc commands ([a44fc3c](https://github.com/hadihaider055/catalyst-dbench/commit/a44fc3c29cedbac6201f5c3ae895c95df6e4a98a))
+* **core:** Driver + Connection traits, Query/Result/Schema types, DatabaseType enum (19 databases), CatalystError ([42a3852](https://github.com/hadihaider055/catalyst-dbench/commit/42a3852649175ac00ed99a7f7d082d317e1e6c03))
+* **drivers:** PostgreSQL, SQLite, MongoDB, Redis driver scaffolds ([529d855](https://github.com/hadihaider055/catalyst-dbench/commit/529d855a615fb861c04d2fad992f12bbbccd4e28))
+* **drivers:** real sqlite impl, fix driver imports ([2356272](https://github.com/hadihaider055/catalyst-dbench/commit/2356272ab969155d35eea390790218be71940615))
+* **engine:** connection adapter and real query execution ([f97b550](https://github.com/hadihaider055/catalyst-dbench/commit/f97b5506e498fe40495630af7018667e0093237c))
+* **engine:** ConnectionRegistry (DashMap), QueryExecutor with audit hooks ([60442c8](https://github.com/hadihaider055/catalyst-dbench/commit/60442c8f19e9042fc49a236420594621e992eb93))
+* **macros:** derive(ConnectionConfig) — secret field handling ([672ecbb](https://github.com/hadihaider055/catalyst-dbench/commit/672ecbbea1fee83a33e64aa4901965461f4b4019))
+* **ui:** menu bar, tabs, MongoDB edit/explain, ClickHouse, import SQL, zoom fix ([08a523f](https://github.com/hadihaider055/catalyst-dbench/commit/08a523f4c0d059ff0977e0f3311b80846b7f0857))
+* **ui:** React 19 + Monaco + TanStack Table + Zustand + Tailwind ([068c921](https://github.com/hadihaider055/catalyst-dbench/commit/068c9214b5005a534abdd9db4ce9d616e2450740))
+
+### Bug Fixes
+
+* **core:** fix ConnectionConfig export and error format ([504b5d8](https://github.com/hadihaider055/catalyst-dbench/commit/504b5d88ce7181060ce1e4ffdaada8967a5b3400))
+* **security:** base64 and keyring v2 api fixes ([e01b95b](https://github.com/hadihaider055/catalyst-dbench/commit/e01b95b92821d50e3f64376c3717d2b244e71802))
+* **ui:** typescript errors and updated ipc types ([9dd9250](https://github.com/hadihaider055/catalyst-dbench/commit/9dd9250dc8dbe207a96f0f29fe230611c8d27373))
+
+### Security
+
+* OS keychain, AES-256-GCM, audit log, TLS, SSH, PII masking ([0ddf6d8](https://github.com/hadihaider055/catalyst-dbench/commit/0ddf6d81c8eb473cb20a67ccf5757ec1629f03cd))
+
+### Documentation
+
+* initial project foundation, plan, and open source docs ([aae077a](https://github.com/hadihaider055/catalyst-dbench/commit/aae077a9153b78206b37fba42f873ff67f428971))
+* **security:** add 7-layer security architecture documentation ([a23537a](https://github.com/hadihaider055/catalyst-dbench/commit/a23537a0d66361587c1d6429900349d02bff57ff))
+
 # Changelog
 
 All notable changes to Catalyst DBench are documented here.
