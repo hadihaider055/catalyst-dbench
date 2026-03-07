@@ -27,15 +27,15 @@ Modern stacks are polyglot. You use Postgres in production, Redis for caching, M
 
 | Database | Status | Type |
 |----------|--------|------|
-| PostgreSQL | Planned (v0.1) | SQL |
-| MySQL / MariaDB | Planned (v0.1) | SQL |
-| SQLite | Planned (v0.1) | SQL (embedded) |
-| MongoDB | Planned (v0.1) | Document |
-| Redis | Planned (v0.1) | Key-Value |
-| CockroachDB | Planned (v0.2) | SQL |
+| PostgreSQL | ✅ Working | SQL |
+| MySQL / MariaDB | ✅ Working | SQL |
+| SQLite | ✅ Working | SQL (embedded) |
+| MongoDB | ✅ Working | Document |
+| Redis | ✅ Working | Key-Value |
+| ClickHouse | ✅ Working | OLAP |
+| CockroachDB | ✅ Working (Postgres-compatible) | SQL |
 | DynamoDB | Planned (v0.2) | Key-Value |
 | Cassandra / ScyllaDB | Planned (v0.3) | Wide-Column |
-| ClickHouse | Planned (v0.3) | OLAP |
 | FaunaDB | Planned (v0.3) | Document |
 | SurrealDB | Planned (v0.3) | Multi-model |
 
@@ -43,15 +43,20 @@ Modern stacks are polyglot. You use Postgres in production, Redis for caching, M
 
 ## Features
 
-- **Query Editor** — Monaco-based editor with SQL/NoSQL syntax highlighting, auto-complete, and formatting
-- **Schema Explorer** — Browse tables, collections, indexes, and relationships in a sidebar
-- **Data Grid** — High-performance table for query results with sorting, filtering, and inline editing
-- **Connection Manager** — Securely store and manage connections (credentials in OS keychain)
-- **Multiple Tabs** — Work across multiple connections simultaneously
-- **Query History** — Full history of executed queries, searchable
-- **Export** — Export results to CSV, JSON, or Parquet
-- **SSH Tunnels** — Connect to remote databases via SSH tunneling
-- **Dark / Light theme** — Follows system preference
+- **Query Editor** — Monaco-based editor with SQL/NoSQL syntax highlighting, auto-complete, snippet bar, and formatting
+- **Schema Explorer** — Browse tables, collections, indexes, and relationships; MongoDB grouped by database (Atlas-style)
+- **Data Grid** — High-performance table with sorting, filtering, pagination, inline editing, and delete for both SQL and NoSQL
+- **Connection Manager** — Securely store and manage connections (credentials in OS keychain); URI support for MongoDB/Postgres/Redis
+- **Multiple Tabs** — Work across multiple connections simultaneously; tabs show table/collection name
+- **App Menu Bar** — File / View / Tools dropdown menus (MongoDB Compass-style)
+- **Keyboard Shortcuts** — Ctrl+T new tab, Ctrl+W close tab, Ctrl+Shift+W close all, Ctrl+B sidebar, Ctrl+/ shortcuts modal
+- **Query History** — Full history of executed queries including inline edits
+- **Export** — Export results to CSV or JSON; export schema as SQL DDL
+- **Import SQL** — Open `.sql` files directly into the query editor
+- **MongoDB Support** — JSON query mode (`find`, `aggregate`, `update`, `delete`, `insert`), Atlas-style tree, explain plans
+- **ClickHouse Support** — HTTP API driver with full schema introspection
+- **Dark / Light theme** — Toggle from menu or keyboard shortcut
+- **Zoom** — Ctrl+= / Ctrl+- zoom in/out without breaking editor cursor placement
 
 ---
 

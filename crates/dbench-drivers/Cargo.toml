@@ -1,6 +1,6 @@
 [package]
 name = "dbench-drivers"
-description = "Database driver implementations for DBench — PostgreSQL, MySQL, SQLite, MongoDB, Redis"
+description = "Database driver implementations for DBench — PostgreSQL, MySQL, SQLite, MongoDB, Redis, ClickHouse"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,11 +10,12 @@ repository.workspace = true
 [features]
 default = ["postgres", "sqlite"]
 postgres = ["dep:tokio-postgres", "dep:postgres-types"]
-mysql = []
+mysql = ["dep:sqlx"]
 sqlite = ["dep:rusqlite"]
-mongodb = ["dep:mongodb"]
+mongodb = ["dep:mongodb", "dep:futures-util"]
 redis = ["dep:redis"]
-all = ["postgres", "mysql", "sqlite", "mongodb", "redis"]
+clickhouse = ["dep:reqwest"]
+all = ["postgres", "mysql", "sqlite", "mongodb", "redis", "clickhouse"]
 
 [dependencies]
 dbench-core = { workspace = true }
@@ -37,8 +38,15 @@ postgres-types = { version = "0.2", features = ["derive"], optional = true }
 # SQLite
 rusqlite = { version = "0.31", features = ["bundled", "chrono", "uuid", "column_decltype"], optional = true }
 
+# MySQL (sqlx mysql feature only — no sqlite conflict)
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "mysql", "macros", "chrono"], optional = true }
+
 # MongoDB
 mongodb = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 # Redis
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], optional = true }
+
+# ClickHouse (HTTP interface)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }

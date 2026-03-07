@@ -24,13 +24,19 @@ use uuid::Uuid;
 /// Object-safe async connection interface (via `async_trait`).
 #[async_trait]
 pub trait DynConnection: Send + Sync {
+    /// Return metadata about this connection.
     fn info(&self) -> &ConnectionInfo;
+    /// Check if the connection is believed to be alive (no network call).
     fn is_alive(&self) -> bool;
+    /// Execute a query and return results.
     async fn execute(&mut self, query: &Query) -> Result<QueryResult>;
+    /// Inspect the database schema.
     async fn inspect_schema(&mut self) -> Result<DatabaseSchema>;
+    /// Ping the server and return round-trip duration.
     async fn ping(&mut self) -> Result<Duration>;
 }
 
+/// Type alias for a heap-allocated, type-erased connection.
 pub type BoxConnection = Box<dyn DynConnection>;
 
 // ---------------------------------------------------------------------------
@@ -38,6 +44,9 @@ pub type BoxConnection = Box<dyn DynConnection>;
 // ---------------------------------------------------------------------------
 
 /// Wraps any `Connection` impl so it can be stored as `BoxConnection`.
+///
+/// This adapter bridges the AFIT-based `Connection` trait to the
+/// `async_trait`-based `DynConnection` for type-erased storage.
 pub struct ConnectionAdapter<C>(pub C);
 
 #[async_trait]
@@ -106,18 +115,22 @@ impl ConnectionRegistry {
         Ok(())
     }
 
+    /// Retrieve a connection handle by ID for exclusive access.
     pub fn get(&self, id: Uuid) -> Option<Arc<tokio::sync::Mutex<BoxConnection>>> {
         self.connections.get(&id).map(|v| Arc::clone(v.value()))
     }
 
+    /// List metadata for all active connections.
     #[must_use]
     pub fn list(&self) -> Vec<ConnectionInfo> {
         self.infos.iter().map(|e| e.value().clone()).collect()
     }
 
+    /// Return the number of active connections.
     #[must_use]
     pub fn len(&self) -> usize { self.connections.len() }
 
+    /// Return `true` if there are no active connections.
     #[must_use]
     pub fn is_empty(&self) -> bool { self.connections.is_empty() }
 }

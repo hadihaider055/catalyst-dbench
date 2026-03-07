@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ConnectionInfo,
   ConnectionPayload,
+  DatabaseSchema,
   QueryPayload,
   QueryResult,
 } from "./types";
@@ -34,6 +35,12 @@ export const closeConnection = (connectionId: string): Promise<void> =>
 export const removeConnection = (connectionId: string): Promise<void> =>
   invoke("remove_connection", { connectionId });
 
+export const storeCredential = (connectionId: string, password: string): Promise<void> =>
+  invoke("store_credential", { connectionId, password });
+
+export const getCredential = (connectionId: string): Promise<string | null> =>
+  invoke("get_credential", { connectionId });
+
 // ── Query ────────────────────────────────────────────────────────────────────
 
 export const executeQuery = (payload: QueryPayload): Promise<QueryResult> =>
@@ -47,7 +54,7 @@ export const executeBatch = (
 
 // ── Schema ───────────────────────────────────────────────────────────────────
 
-export const getSchema = (connectionId: string): Promise<unknown> =>
+export const getSchema = (connectionId: string): Promise<DatabaseSchema> =>
   invoke("get_schema", { connectionId });
 
 // ── App ──────────────────────────────────────────────────────────────────────

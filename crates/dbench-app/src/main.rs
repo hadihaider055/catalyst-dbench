@@ -47,6 +47,8 @@ fn main() {
             commands::connections::test_connection,
             commands::connections::open_connection,
             commands::connections::close_connection,
+            commands::connections::store_credential,
+            commands::connections::get_credential,
             commands::query::execute_query,
             commands::query::execute_batch,
             commands::schema::get_schema,

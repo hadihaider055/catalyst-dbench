@@ -85,6 +85,8 @@ pub struct ViewSchema {
 /// Schema for a document collection (MongoDB, CouchDB, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionSchema {
+    /// The database this collection belongs to (used when listing across multiple databases).
+    pub database: Option<String>,
     pub name: String,
     /// Inferred field schema from a sample of documents.
     pub inferred_fields: Vec<InferredField>,

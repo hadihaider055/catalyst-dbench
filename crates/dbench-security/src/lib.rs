@@ -27,13 +27,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![warn(
-    missing_docs,
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo
-)]
+#![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
 pub mod audit;

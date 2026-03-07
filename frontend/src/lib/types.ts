@@ -136,3 +136,60 @@ export interface QueryTab {
   error?: string;
   running: boolean;
 }
+
+export interface HistoryEntry {
+  id: string;
+  sql: string;
+  conn_id: string;
+  conn_name: string;
+  duration_ms: number;
+  row_count: number;
+  ts: number; // epoch ms
+  error?: string;
+}
+
+export interface SavedQuery {
+  id: string;
+  name: string;
+  sql: string;
+  db_type?: DatabaseType;
+  created_at: number; // epoch ms
+}
+
+// Schema types (mirrors dbench-core schema types)
+export interface ColumnSchema {
+  name: string;
+  ordinal: number;
+  native_type: string;
+  nullable: boolean;
+  default_value?: string;
+  is_primary_key: boolean;
+  is_unique: boolean;
+  comment?: string;
+}
+
+export interface TableSchema {
+  schema?: string;
+  name: string;
+  columns: ColumnSchema[];
+  indexes: unknown[];
+  foreign_keys: unknown[];
+  row_count?: number;
+  comment?: string;
+}
+
+export interface SchemaObject {
+  kind: "table" | "view" | "collection" | "index" | "key_pattern" | "procedure";
+  name?: string;
+  schema?: string;
+  database?: string;
+  columns?: ColumnSchema[];
+  [key: string]: unknown;
+}
+
+export interface DatabaseSchema {
+  name: string;
+  db_type: DatabaseType;
+  server_version: string;
+  objects: SchemaObject[];
+}

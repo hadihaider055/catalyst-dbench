@@ -78,21 +78,30 @@ impl Driver for PostgresDriver {
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
         config.validate()?;
 
-        let password = config.password.as_deref().unwrap_or("");
-        let app_name = config.application_name.as_deref().unwrap_or("dbench");
-
-        let conn_str = format!(
-            "host={} port={} dbname={} user={} password={} application_name={}",
-            config.host, config.port, config.database, config.username, password, app_name,
-        );
-
         tracing::info!(
             host = %config.host, port = config.port,
             database = %config.database, username = %config.username,
             "Connecting to PostgreSQL"
         );
 
-        let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+        let mut pg_config = tokio_postgres::Config::new();
+        pg_config
+            .host(&config.host)
+            .port(config.port)
+            .dbname(&config.database)
+            .user(&config.username)
+            .application_name(config.application_name.as_deref().unwrap_or("dbench"));
+
+        if let Some(pass) = &config.password {
+            pg_config.password(pass.as_str());
+        }
+
+        if let Some(ms) = config.connect_timeout_ms {
+            pg_config.connect_timeout(std::time::Duration::from_millis(ms));
+        }
+
+        let (client, connection) = pg_config
+            .connect(tokio_postgres::NoTls)
             .await
             .map_err(|e| CatalystError::connection_failed(
                 DatabaseType::Postgres, &config.host, e.to_string(),

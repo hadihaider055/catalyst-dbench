@@ -16,6 +16,7 @@
 //! | `mysql` | MySQL / MariaDB | no |
 //! | `mongodb` | MongoDB | no |
 //! | `redis` | Redis | no |
+//! | `clickhouse` | ClickHouse (HTTP) | no |
 //! | `all` | All of the above | no |
 //!
 //! ## Adding a New Driver
@@ -28,7 +29,7 @@
 //! 6. Register in `dbench-engine/src/registry.rs`
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all)]
+#![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
 #[cfg(feature = "postgres")]
@@ -46,6 +47,9 @@ pub mod mongodb;
 #[cfg(feature = "redis")]
 pub mod redis;
 
+#[cfg(feature = "clickhouse")]
+pub mod clickhouse;
+
 // Convenience re-exports
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresConfig, PostgresDriver};
@@ -61,3 +65,6 @@ pub use mongodb::{MongoConfig, MongoDriver};
 
 #[cfg(feature = "redis")]
 pub use redis::{RedisConfig, RedisDriver};
+
+#[cfg(feature = "clickhouse")]
+pub use clickhouse::{ClickhouseConfig, ClickhouseDriver};

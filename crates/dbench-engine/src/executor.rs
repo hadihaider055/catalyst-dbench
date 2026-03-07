@@ -24,6 +24,7 @@ pub struct QueryExecutor {
 }
 
 impl QueryExecutor {
+    /// Create a new executor sharing the given connection registry and audit logger.
     #[must_use]
     pub fn new(registry: Arc<ConnectionRegistry>, audit: AuditLogger) -> Self {
         Self { registry, audit }

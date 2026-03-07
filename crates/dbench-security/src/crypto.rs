@@ -10,7 +10,7 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
 };
 use argon2::{
-    password_hash::{rand_core::RngCore, SaltString},
+    password_hash::rand_core::RngCore,
     Argon2, Params,
 };
 use base64::Engine as _;

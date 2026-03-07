@@ -13,7 +13,7 @@
 //! - [`DatabaseType`] — enum of all supported database types
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs, clippy::all)]
+#![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
 pub mod connection;

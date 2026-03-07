@@ -60,6 +60,12 @@ id_ed25519
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Internal tooling 
 .toolchain/
-target/
 .dev-notes/
+CLAUDE.md
+
+# Build artifacts (nested)
+target/
+crates/*/target/

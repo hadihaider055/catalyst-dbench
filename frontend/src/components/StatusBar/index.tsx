@@ -12,7 +12,6 @@ export default function StatusBar() {
 
   return (
     <div className="flex items-center gap-3 px-3 h-6 bg-accent text-white text-2xs flex-shrink-0 select-none overflow-hidden">
-      {/* Left: connection info */}
       {conn ? (
         <>
           <span className="flex items-center gap-1">
@@ -38,7 +37,6 @@ export default function StatusBar() {
 
       <div className="flex-1" />
 
-      {/* Right: security status */}
       <span className="flex items-center gap-1 text-green-300">
         <Shield size={9} />
         Encrypted

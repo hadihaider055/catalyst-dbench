@@ -9,7 +9,9 @@ export default function App() {
   useEffect(() => {
     listConnections()
       .then(setActiveConnections)
-      .catch(() => {/* app may not be connected to backend yet */});
+      .catch(() => {
+        /* app may not be connected to backend yet */
+      });
   }, [setActiveConnections]);
 
   return <Layout />;

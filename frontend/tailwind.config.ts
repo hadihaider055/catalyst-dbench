@@ -5,30 +5,30 @@ export default {
   theme: {
     extend: {
       colors: {
-        // VS Code-inspired dark palette
+        // Colors reference CSS custom properties so they switch with data-theme
         surface: {
-          DEFAULT: "#1e1e1e",
-          raised: "#252526",
-          overlay: "#2d2d30",
-          border: "#3e3e42",
+          DEFAULT: "rgb(var(--c-surface) / <alpha-value>)",
+          raised:   "rgb(var(--c-surface-raised) / <alpha-value>)",
+          overlay:  "rgb(var(--c-surface-overlay) / <alpha-value>)",
+          border:   "rgb(var(--c-surface-border) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "#0078d4",
-          hover: "#106ebe",
-          muted: "#1a3a5c",
+          DEFAULT: "rgb(var(--c-accent) / <alpha-value>)",
+          hover:   "rgb(var(--c-accent-hover) / <alpha-value>)",
+          muted:   "rgb(var(--c-accent-muted) / <alpha-value>)",
         },
         text: {
-          primary: "#cccccc",
-          secondary: "#969696",
-          muted: "#6a6a6a",
-          link: "#3794ff",
+          primary:   "rgb(var(--c-text-primary) / <alpha-value>)",
+          secondary: "rgb(var(--c-text-secondary) / <alpha-value>)",
+          muted:     "rgb(var(--c-text-muted) / <alpha-value>)",
+          link:      "rgb(var(--c-text-link) / <alpha-value>)",
         },
         db: {
           postgres: "#336791",
-          mysql: "#f29111",
-          sqlite: "#003b57",
-          mongodb: "#47a248",
-          redis: "#dc382d",
+          mysql:    "#f29111",
+          sqlite:   "#003b57",
+          mongodb:  "#47a248",
+          redis:    "#dc382d",
         },
       },
       fontFamily: {
@@ -37,9 +37,9 @@ export default {
       },
       fontSize: {
         "2xs": ["10px", "14px"],
-        xs: ["11px", "16px"],
-        sm: ["12px", "18px"],
-        base: ["13px", "20px"],
+        xs:    ["11px", "16px"],
+        sm:    ["12px", "18px"],
+        base:  ["13px", "20px"],
       },
     },
   },
