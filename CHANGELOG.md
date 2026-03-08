@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.0.0...v1.1.0) (2026-03-08)
+
+### Features
+
+* SSH tunnels, ER diagram, explain plan, CSV/JSON import, FK introspection ([fb84353](https://github.com/hadihaider055/catalyst-dbench/commit/fb843531325ca733f6f0492f0a100012398262db))
+
 ## 1.0.0 (2026-03-07)
 
 ### Features
