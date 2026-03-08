@@ -13,7 +13,7 @@ use dbench_core::{
     error::CatalystError,
     query::Query,
     result::{Column, ColumnType, QueryResult, Row, Value},
-    schema::{ColumnSchema, DatabaseSchema, SchemaObject, TableSchema},
+    schema::{ColumnSchema, DatabaseSchema, ForeignKeySchema, SchemaObject, TableSchema},
     types::{ConnectionInfo, ConnectionMode, DatabaseType},
     Result,
 };
@@ -273,6 +273,40 @@ impl Connection for SqliteConnection {
                         });
                     }
 
+                    // Foreign keys via PRAGMA foreign_key_list.
+                    // Returns: id, seq, table, from, to, on_update, on_delete, match
+                    let mut fk_stmt = conn.prepare(
+                        &format!("PRAGMA foreign_key_list(\"{}\")", name)
+                    ).map_err(|e| CatalystError::SchemaError(e.to_string()))?;
+
+                    // Group by FK id (one FK constraint can span multiple columns).
+                    let mut fk_map: std::collections::BTreeMap<i64, ForeignKeySchema> =
+                        std::collections::BTreeMap::new();
+
+                    let mut fk_rows = fk_stmt.query([])
+                        .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
+                    while let Some(fr) = fk_rows.next()
+                        .map_err(|e| CatalystError::SchemaError(e.to_string()))? {
+                        let fk_id: i64 = fr.get(0).unwrap_or(0);
+                        let ref_tbl: String = fr.get(2).unwrap_or_default();
+                        let from_col: String = fr.get(3).unwrap_or_default();
+                        let to_col: String   = fr.get(4).unwrap_or_default();
+                        let on_upd: String   = fr.get(5).unwrap_or_else(|_| "NO ACTION".into());
+                        let on_del: String   = fr.get(6).unwrap_or_else(|_| "NO ACTION".into());
+
+                        let entry = fk_map.entry(fk_id).or_insert_with(|| ForeignKeySchema {
+                            name: format!("fk_{}_{}", name, fk_id),
+                            columns: vec![],
+                            referenced_table: ref_tbl,
+                            referenced_columns: vec![],
+                            on_delete: Some(on_del),
+                            on_update: Some(on_upd),
+                        });
+                        entry.columns.push(from_col);
+                        entry.referenced_columns.push(to_col);
+                    }
+                    let foreign_keys: Vec<ForeignKeySchema> = fk_map.into_values().collect();
+
                     // Row count estimate.
                     let row_count: Option<u64> = conn
                         .query_row(
@@ -288,7 +322,7 @@ impl Connection for SqliteConnection {
                         name,
                         columns,
                         indexes: vec![],
-                        foreign_keys: vec![],
+                        foreign_keys,
                         row_count,
                         comment: None,
                     }));

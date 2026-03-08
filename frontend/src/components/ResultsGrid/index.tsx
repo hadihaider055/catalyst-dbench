@@ -32,6 +32,7 @@ import {
 // Components
 import ConfirmEditModal from "./ConfirmEditModal";
 import ContextMenu, { type ContextMenuEntry } from "../ContextMenu/index";
+import ExplainPlan from "../ExplainPlan/index";
 
 // Utils
 import { cn, formatRowCount, formatDuration } from "@/lib/utils";
@@ -67,10 +68,8 @@ export default function ResultsGrid({ tab }: Props) {
 
   if (tab.result.explain_plan) {
     return (
-      <div className="h-full bg-surface overflow-auto p-4">
-        <pre className="text-xs text-text-primary font-mono whitespace-pre-wrap">
-          {tab.result.explain_plan}
-        </pre>
+      <div className="h-full bg-surface">
+        <ExplainPlan plan={tab.result.explain_plan} />
       </div>
     );
   }

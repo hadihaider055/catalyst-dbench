@@ -3,7 +3,7 @@
 use dbench_core::{
     error::CatalystError,
     schema::{
-        ColumnSchema, DatabaseSchema, ForeignKeySchema, IndexSchema, SchemaObject, TableSchema,
+        ColumnSchema, DatabaseSchema, ForeignKeySchema, SchemaObject, TableSchema,
         ViewSchema,
     },
     types::DatabaseType,
@@ -77,6 +77,66 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         });
     }
 
+    // Fetch all foreign keys in a single query.
+    let fk_rows = client.query("
+        SELECT
+            tc.table_schema,
+            tc.table_name,
+            tc.constraint_name,
+            kcu.column_name,
+            ccu.table_name  AS referenced_table,
+            ccu.column_name AS referenced_column,
+            rc.delete_rule,
+            rc.update_rule
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+            ON  tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema    = kcu.table_schema
+            AND tc.table_name      = kcu.table_name
+        JOIN information_schema.constraint_column_usage ccu
+            ON  ccu.constraint_name = tc.constraint_name
+            AND ccu.table_schema    = tc.table_schema
+        JOIN information_schema.referential_constraints rc
+            ON  tc.constraint_name  = rc.constraint_name
+            AND tc.table_schema     = rc.constraint_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position
+    ", &[]).await.unwrap_or_default();
+
+    // Build FK map: (schema, table) -> Vec<ForeignKeySchema>
+    // Each constraint may span multiple columns, so we group by constraint name.
+    let mut fk_map: std::collections::HashMap<
+        (String, String),
+        std::collections::HashMap<String, ForeignKeySchema>,
+    > = std::collections::HashMap::new();
+
+    for row in &fk_rows {
+        let schema: String = row.try_get(0).unwrap_or_default();
+        let table: String  = row.try_get(1).unwrap_or_default();
+        let cname: String  = row.try_get(2).unwrap_or_default();
+        let col: String    = row.try_get(3).unwrap_or_default();
+        let ref_tbl: String = row.try_get(4).unwrap_or_default();
+        let ref_col: String = row.try_get(5).unwrap_or_default();
+        let on_del: Option<String> = row.try_get(6).ok();
+        let on_upd: Option<String> = row.try_get(7).ok();
+
+        let entry = fk_map
+            .entry((schema, table))
+            .or_default()
+            .entry(cname.clone())
+            .or_insert_with(|| ForeignKeySchema {
+                name: cname,
+                columns: vec![],
+                referenced_table: ref_tbl,
+                referenced_columns: vec![],
+                on_delete: on_del,
+                on_update: on_upd,
+            });
+        entry.columns.push(col);
+        entry.referenced_columns.push(ref_col);
+    }
+
     // Build objects.
     let mut objects = Vec::new();
     for row in &table_rows {
@@ -85,13 +145,17 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         let comment: Option<String> = row.try_get(2).ok().flatten();
 
         let columns = col_map.remove(&(schema.clone(), name.clone())).unwrap_or_default();
+        let foreign_keys = fk_map
+            .remove(&(schema.clone(), name.clone()))
+            .map(|m| m.into_values().collect())
+            .unwrap_or_default();
 
         objects.push(SchemaObject::Table(TableSchema {
             schema: Some(schema),
             name,
             columns,
             indexes: vec![],
-            foreign_keys: vec![],
+            foreign_keys,
             row_count: None,
             comment,
         }));

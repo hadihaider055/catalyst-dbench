@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Database,
   ChevronRight,
+  Network,
 } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
 import { executeQuery } from "@/lib/commands";
@@ -67,7 +68,7 @@ interface Props {
 }
 
 export default function SchemaTree({ connectionId }: Props) {
-  const { schemas, loadSchema, openTab, activeConnections } = useAppStore();
+  const { schemas, loadSchema, openTab, openERDiagramTab, activeConnections } = useAppStore();
   const schema = schemas[connectionId];
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
@@ -164,6 +165,14 @@ export default function SchemaTree({ connectionId }: Props) {
         onClick: () => navigator.clipboard.writeText(ctx.name),
       },
     ];
+    if (isSql && ctx.kind === "table") {
+      items.push({ separator: true });
+      items.push({
+        label: "View ER Diagram",
+        icon: <Network size={11} />,
+        onClick: () => conn && openERDiagramTab(connectionId, conn.host, dbType),
+      });
+    }
     if (isSql) {
       items.push({ separator: true });
       if (ctx.kind === "table" || ctx.kind === "view") {

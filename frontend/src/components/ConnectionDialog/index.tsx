@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, TestTube, Save, Eye, EyeOff, Lock, Link } from "lucide-react";
+import { X, TestTube, Save, Eye, EyeOff, Lock, Link, ChevronDown } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
 import { addConnection, testConnection, storeCredential, getCredential } from "@/lib/commands";
 import { cn, dbIcon } from "@/lib/utils";
@@ -46,6 +46,15 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // SSH tunnel
+  const [sshEnabled, setSshEnabled] = useState(existing?.ssh_enabled ?? false);
+  const [sshHost, setSshHost] = useState(existing?.ssh_host ?? "");
+  const [sshPort, setSshPort] = useState(String(existing?.ssh_port ?? 22));
+  const [sshUsername, setSshUsername] = useState(existing?.ssh_username ?? "");
+  const [sshAuthMethod, setSshAuthMethod] = useState<"agent" | "key">(existing?.ssh_auth_method ?? "agent");
+  const [sshKeyPath, setSshKeyPath] = useState(existing?.ssh_key_path ?? "");
+  const [sshOpen, setSshOpen] = useState(existing?.ssh_enabled ?? false);
+
   // On reconnect, pre-fill password from the OS keychain so the user doesn't have to re-enter it.
   useEffect(() => {
     if (reconnect && existing) {
@@ -66,6 +75,17 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
     setHost(h);
   };
 
+  const sshFields = sshEnabled
+    ? {
+        ssh_enabled: true,
+        ssh_host: sshHost,
+        ssh_port: parseInt(sshPort) || 22,
+        ssh_username: sshUsername,
+        ssh_auth_method: sshAuthMethod,
+        ssh_key_path: sshAuthMethod === "key" ? sshKeyPath : undefined,
+      }
+    : {};
+
   const buildPayload = () => {
     const connName = name || `${dbType}-${host}`;
     if (useUri && uri) {
@@ -79,6 +99,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
         password: password || undefined,
         tls_enabled: tls,
         read_only: readOnly,
+        ...sshFields,
       };
     }
     return {
@@ -91,6 +112,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
       password: password || undefined,
       tls_enabled: tls,
       read_only: readOnly,
+      ...sshFields,
     };
   };
 
@@ -125,6 +147,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
           username,
           tls_enabled: tls,
           read_only: readOnly,
+          ...sshFields,
         };
         upsertSavedConnection(conn);
         addActiveConnection(result.info);
@@ -151,6 +174,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
       username,
       tls_enabled: tls,
       read_only: readOnly,
+      ...sshFields,
     };
     upsertSavedConnection(conn);
     onClose();
@@ -343,6 +367,80 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                   />
                   <span className="text-xs text-text-secondary">Read-only mode</span>
                 </label>
+              </div>
+
+              {/* SSH Tunnel */}
+              <div className="border border-surface-border rounded">
+                <button
+                  type="button"
+                  className="flex items-center justify-between w-full px-3 py-2 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                  onClick={() => setSshOpen((v) => !v)}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={sshEnabled}
+                      onChange={(e) => { setSshEnabled(e.target.checked); setSshOpen(e.target.checked); }}
+                      className="accent-accent"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    SSH Tunnel
+                  </span>
+                  <ChevronDown
+                    size={11}
+                    className={cn("transition-transform text-text-muted", sshOpen && "rotate-180")}
+                  />
+                </button>
+
+                {sshOpen && (
+                  <div className="px-3 pb-3 space-y-3 border-t border-surface-border">
+                    <div className="grid grid-cols-3 gap-3 pt-3">
+                      <div className="col-span-2">
+                        <Field label="SSH Host">
+                          <Input value={sshHost} onChange={setSshHost} placeholder="bastion.example.com" />
+                        </Field>
+                      </div>
+                      <Field label="Port">
+                        <Input value={sshPort} onChange={setSshPort} placeholder="22" type="number" />
+                      </Field>
+                    </div>
+                    <Field label="SSH Username">
+                      <Input value={sshUsername} onChange={setSshUsername} placeholder="ubuntu" />
+                    </Field>
+                    <div>
+                      <label className="block text-xs text-text-secondary mb-1.5">Auth Method</label>
+                      <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={sshAuthMethod === "agent"}
+                            onChange={() => setSshAuthMethod("agent")}
+                            className="accent-accent"
+                          />
+                          <span className="text-xs text-text-secondary">SSH Agent</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={sshAuthMethod === "key"}
+                            onChange={() => setSshAuthMethod("key")}
+                            className="accent-accent"
+                          />
+                          <span className="text-xs text-text-secondary">Private Key</span>
+                        </label>
+                      </div>
+                    </div>
+                    {sshAuthMethod === "key" && (
+                      <Field label="Private Key Path">
+                        <Input
+                          value={sshKeyPath}
+                          onChange={setSshKeyPath}
+                          placeholder="~/.ssh/id_ed25519"
+                        />
+                      </Field>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           )}

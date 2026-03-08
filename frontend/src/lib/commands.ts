@@ -57,6 +57,9 @@ export const executeBatch = (
 export const getSchema = (connectionId: string): Promise<DatabaseSchema> =>
   invoke("get_schema", { connectionId });
 
+export const listDatabases = (connectionId: string): Promise<string[]> =>
+  invoke("list_databases", { connectionId });
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export const getVersion = (): Promise<string> => invoke("get_version");

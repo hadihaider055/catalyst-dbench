@@ -8,6 +8,7 @@ mod state;
 
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use dbench_engine::{ConnectionRegistry, QueryExecutor};
 use dbench_security::{audit::AuditLogger, logging::init_logging};
 use state::AppState;
@@ -35,7 +36,12 @@ fn main() {
             let registry = Arc::new(ConnectionRegistry::new());
             let executor = QueryExecutor::new(Arc::clone(&registry), audit.clone());
 
-            app.manage(AppState { registry, executor, audit });
+            app.manage(AppState {
+                registry,
+                executor,
+                audit,
+                ssh_tunnels: Arc::new(DashMap::new()),
+            });
 
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "Catalyst DBench started");
             Ok(())
@@ -49,6 +55,7 @@ fn main() {
             commands::connections::close_connection,
             commands::connections::store_credential,
             commands::connections::get_credential,
+            commands::connections::list_databases,
             commands::query::execute_query,
             commands::query::execute_batch,
             commands::schema::get_schema,

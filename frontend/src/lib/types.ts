@@ -45,6 +45,13 @@ export interface ConnectionPayload {
   password?: string;
   tls_enabled: boolean;
   read_only: boolean;
+  // SSH tunnel (optional)
+  ssh_enabled?: boolean;
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_username?: string;
+  ssh_auth_method?: "agent" | "key";
+  ssh_key_path?: string;
 }
 
 export type Value =
@@ -123,6 +130,13 @@ export interface SavedConnection {
   tls_enabled: boolean;
   read_only: boolean;
   color?: string;
+  // SSH tunnel config (stored without passphrase)
+  ssh_enabled?: boolean;
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_username?: string;
+  ssh_auth_method?: "agent" | "key";
+  ssh_key_path?: string;
 }
 
 export interface QueryTab {
@@ -135,6 +149,17 @@ export interface QueryTab {
   result?: QueryResult;
   error?: string;
   running: boolean;
+  kind?: "query" | "er_diagram";
+  er_connection_id?: string;
+}
+
+export interface ForeignKeySchema {
+  name: string;
+  columns: string[];
+  referenced_table: string;
+  referenced_columns: string[];
+  on_delete?: string;
+  on_update?: string;
 }
 
 export interface HistoryEntry {

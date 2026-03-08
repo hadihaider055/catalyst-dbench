@@ -17,8 +17,10 @@ import {
 import Sidebar from "../Sidebar/index";
 import QueryEditor from "../QueryEditor/index";
 import ResultsGrid from "../ResultsGrid/index";
+import ERDiagram from "../ERDiagram/index";
 import StatusBar from "../StatusBar/index";
 import ConnectionDialog from "../ConnectionDialog/index";
+import ImportDialog from "../ImportDialog/index";
 import TabButton from "./TabButton";
 import Welcome from "./Welcome";
 
@@ -152,6 +154,7 @@ export default function Layout() {
   } = useAppStore();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [queryPanelHeight, setQueryPanelHeight] = useState(300);
   const isDraggingSidebar = useRef(false);
   const isDraggingResults = useRef(false);
@@ -277,6 +280,11 @@ export default function Layout() {
     {
       label: "Import SQL File…",
       onClick: importSql,
+    },
+    {
+      label: "Import CSV / JSON…",
+      disabled: !activeTab,
+      onClick: () => setShowImportDialog(true),
     },
     {
       label: "Export Schema as SQL…",
@@ -442,6 +450,17 @@ export default function Layout() {
         <ConnectionDialog onClose={() => setShowAddDialog(false)} />
       )}
 
+      {showImportDialog && activeTab && (
+        <ImportDialog
+          connectionId={activeTab.connection_id}
+          onClose={() => setShowImportDialog(false)}
+          onSuccess={(n) => {
+            setShowImportDialog(false);
+            console.info(`Imported ${n} rows`);
+          }}
+        />
+      )}
+
       {/* Main content */}
       <div className="flex flex-1 min-h-0">
         {!sidebarCollapsed && (
@@ -461,26 +480,32 @@ export default function Layout() {
 
         <div className="flex-1 flex flex-col min-w-0">
           {activeTab ? (
-            <>
-              <div
-                className="flex-shrink-0"
-                style={{ height: `calc(100% - ${queryPanelHeight}px - 5px)` }}
-              >
-                <QueryEditor tab={activeTab} />
+            activeTab.kind === "er_diagram" ? (
+              <div className="flex-1 min-h-0">
+                <ERDiagram connectionId={activeTab.er_connection_id ?? activeTab.connection_id} />
               </div>
-              <div
-                className="h-1.5 bg-surface-border hover:bg-accent cursor-row-resize flex-shrink-0 flex items-center justify-center transition-colors"
-                onMouseDown={onResultsMouseDown}
-              >
-                <div className="w-8 h-0.5 bg-text-muted rounded" />
-              </div>
-              <div
-                style={{ height: queryPanelHeight }}
-                className="flex-shrink-0"
-              >
-                <ResultsGrid tab={activeTab} />
-              </div>
-            </>
+            ) : (
+              <>
+                <div
+                  className="flex-shrink-0"
+                  style={{ height: `calc(100% - ${queryPanelHeight}px - 5px)` }}
+                >
+                  <QueryEditor tab={activeTab} />
+                </div>
+                <div
+                  className="h-1.5 bg-surface-border hover:bg-accent cursor-row-resize flex-shrink-0 flex items-center justify-center transition-colors"
+                  onMouseDown={onResultsMouseDown}
+                >
+                  <div className="w-8 h-0.5 bg-text-muted rounded" />
+                </div>
+                <div
+                  style={{ height: queryPanelHeight }}
+                  className="flex-shrink-0"
+                >
+                  <ResultsGrid tab={activeTab} />
+                </div>
+              </>
+            )
           ) : (
             <Welcome />
           )}

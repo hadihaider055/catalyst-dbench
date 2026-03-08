@@ -48,6 +48,7 @@ interface AppState {
   loadSchema: (connectionId: string) => Promise<void>;
 
   openTab: (connectionId: string, connectionName: string, dbType: import("@/lib/types").DatabaseType, title?: string) => string;
+  openERDiagramTab: (connectionId: string, connectionName: string, dbType: import("@/lib/types").DatabaseType) => string;
   closeTab: (tabId: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (tabId: string) => void;
@@ -125,6 +126,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       password,
       tls_enabled: conn.tls_enabled,
       read_only: conn.read_only,
+      ssh_enabled: conn.ssh_enabled,
+      ssh_host: conn.ssh_host,
+      ssh_port: conn.ssh_port,
+      ssh_username: conn.ssh_username,
+      ssh_auth_method: conn.ssh_auth_method,
+      ssh_key_path: conn.ssh_key_path,
     });
     const info = result.info;
     // Update saved connection to use backend UUID so isActive() and loadSchema() work correctly
@@ -159,6 +166,31 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       title: title ?? `Query ${get().tabs.length + 1}`,
       sql: "",
       running: false,
+      kind: "query",
+    };
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
+    return id;
+  },
+
+  openERDiagramTab: (connectionId, connectionName, dbType) => {
+    const existing = get().tabs.find(
+      (t) => t.kind === "er_diagram" && t.er_connection_id === connectionId,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+    const id = generateId();
+    const tab: QueryTab = {
+      id,
+      connection_id: connectionId,
+      connection_name: connectionName,
+      db_type: dbType,
+      title: "ER Diagram",
+      sql: "",
+      running: false,
+      kind: "er_diagram",
+      er_connection_id: connectionId,
     };
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
     return id;

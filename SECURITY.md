@@ -37,7 +37,7 @@ We follow [responsible disclosure](https://en.wikipedia.org/wiki/Responsible_dis
 
 ## Security Architecture Overview
 
-See [docs/security-architecture.md](docs/security-architecture.md) for the complete design.
+The security architecture is implemented in `crates/dbench-security/` — see the source files for full design details.
 
 ### 7 Security Layers
 

@@ -10,7 +10,7 @@ use dbench_core::{
     error::CatalystError,
     query::{Query, QueryParam},
     result::{Column, ColumnType, QueryResult, Row, Value},
-    schema::{ColumnSchema, DatabaseSchema, SchemaObject, TableSchema},
+    schema::{ColumnSchema, DatabaseSchema, ForeignKeySchema, SchemaObject, TableSchema},
     types::{ConnectionInfo, ConnectionMode, DatabaseType},
     Result,
 };
@@ -254,6 +254,52 @@ impl Connection for MysqlConnection {
         .await
         .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
+        // Fetch all foreign keys for this database in one query.
+        let fk_raw: Vec<(String, String, String, String, String, String, String)> =
+            sqlx::query_as(
+                "SELECT
+                    CAST(kcu.TABLE_NAME           AS CHAR),
+                    CAST(kcu.CONSTRAINT_NAME       AS CHAR),
+                    CAST(kcu.COLUMN_NAME           AS CHAR),
+                    CAST(kcu.REFERENCED_TABLE_NAME AS CHAR),
+                    CAST(kcu.REFERENCED_COLUMN_NAME AS CHAR),
+                    CAST(rc.DELETE_RULE            AS CHAR),
+                    CAST(rc.UPDATE_RULE            AS CHAR)
+                 FROM information_schema.KEY_COLUMN_USAGE kcu
+                 JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+                   ON  kcu.CONSTRAINT_NAME   = rc.CONSTRAINT_NAME
+                   AND kcu.TABLE_SCHEMA      = rc.CONSTRAINT_SCHEMA
+                 WHERE kcu.TABLE_SCHEMA = ?
+                   AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+                 ORDER BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION"
+            )
+            .bind(db)
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default();
+
+        // Group by (table, constraint_name)
+        let mut fk_map: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, ForeignKeySchema>,
+        > = std::collections::HashMap::new();
+        for (tbl, cname, col, ref_tbl, ref_col, on_del, on_upd) in fk_raw {
+            let entry = fk_map
+                .entry(tbl)
+                .or_default()
+                .entry(cname.clone())
+                .or_insert_with(|| ForeignKeySchema {
+                    name: cname,
+                    columns: vec![],
+                    referenced_table: ref_tbl,
+                    referenced_columns: vec![],
+                    on_delete: Some(on_del),
+                    on_update: Some(on_upd),
+                });
+            entry.columns.push(col);
+            entry.referenced_columns.push(ref_col);
+        }
+
         let mut objects = Vec::new();
 
         for table_name in table_names {
@@ -283,12 +329,17 @@ impl Connection for MysqlConnection {
                 }
             }).collect();
 
+            let foreign_keys = fk_map
+                .remove(&table_name)
+                .map(|m| m.into_values().collect())
+                .unwrap_or_default();
+
             objects.push(SchemaObject::Table(TableSchema {
                 schema: Some(db.clone()),
                 name: table_name,
                 columns,
                 indexes: vec![],
-                foreign_keys: vec![],
+                foreign_keys,
                 row_count: None,
                 comment: None,
             }));
