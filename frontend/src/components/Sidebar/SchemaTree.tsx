@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Table2,
   Eye,
@@ -11,7 +11,7 @@ import {
   Network,
 } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
-import { executeQuery } from "@/lib/commands";
+import { executeQuery, listDatabases } from "@/lib/commands";
 import type { DatabaseSchema } from "@/lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../ContextMenu/index";
 import DangerConfirm from "./DangerConfirm";
@@ -67,17 +67,40 @@ interface Props {
   connectionId: string;
 }
 
+// DB types that support switching between databases
+const MULTI_DB_TYPES = new Set(["postgres", "mysql", "cockroachdb", "clickhouse", "cassandra"]);
+
 export default function SchemaTree({ connectionId }: Props) {
-  const { schemas, loadSchema, openTab, openERDiagramTab, activeConnections } = useAppStore();
+  const { schemas, loadSchema, openTab, openERDiagramTab, activeConnections, switchDatabase } =
+    useAppStore();
   const schema = schemas[connectionId];
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     sql: string;
     title: string;
   } | null>(null);
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [switchingDb, setSwitchingDb] = useState(false);
 
   const conn = activeConnections.find((c) => c.id === connectionId);
   const dbType = conn?.db_type ?? "postgres";
+
+  useEffect(() => {
+    if (!conn || !MULTI_DB_TYPES.has(dbType)) return;
+    listDatabases(connectionId).then(setDatabases).catch(() => setDatabases([]));
+  }, [connectionId, dbType, conn]);
+
+  const handleSwitchDatabase = async (db: string) => {
+    if (db === conn?.database || switchingDb) return;
+    setSwitchingDb(true);
+    try {
+      await switchDatabase(connectionId, db);
+    } catch (e) {
+      console.error("switchDatabase failed:", e);
+    } finally {
+      setSwitchingDb(false);
+    }
+  };
 
   const refresh = () => {
     useAppStore.setState((s) => ({
@@ -130,6 +153,7 @@ export default function SchemaTree({ connectionId }: Props) {
       "mssql",
       "oracle",
       "clickhouse",
+      "cassandra",
     ].includes(dbType);
     const selectQuery =
       dbType === "mongodb"
@@ -336,9 +360,23 @@ export default function SchemaTree({ connectionId }: Props) {
       <div className="flex items-center justify-between px-2 py-0.5 mb-0.5">
         <div className="flex items-center gap-1 min-w-0">
           <Database size={9} className="text-text-muted flex-shrink-0" />
-          <span className="text-2xs text-text-muted truncate" title={dbSchema.name}>
-            {dbSchema.name}
-          </span>
+          {MULTI_DB_TYPES.has(dbType) && databases.length > 1 ? (
+            <select
+              value={conn?.database ?? dbSchema.name}
+              onChange={(e) => handleSwitchDatabase(e.target.value)}
+              disabled={switchingDb}
+              className="text-2xs text-text-secondary bg-transparent border-none outline-none cursor-pointer truncate max-w-[120px] hover:text-accent transition-colors"
+              title="Switch database"
+            >
+              {databases.map((db) => (
+                <option key={db} value={db}>{db}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-2xs text-text-muted truncate" title={dbSchema.name}>
+              {dbSchema.name}
+            </span>
+          )}
           <span className="text-2xs text-text-muted flex-shrink-0">
             ({tables.length + views.length + collections.length + keyPatterns.length})
           </span>
@@ -348,7 +386,7 @@ export default function SchemaTree({ connectionId }: Props) {
           onClick={refresh}
           title="Refresh schema"
         >
-          <RefreshCw size={10} />
+          {switchingDb ? <RefreshCw size={10} className="animate-spin" /> : <RefreshCw size={10} />}
         </button>
       </div>
 

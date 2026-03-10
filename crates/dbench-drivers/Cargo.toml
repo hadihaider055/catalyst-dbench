@@ -15,7 +15,8 @@ sqlite = ["dep:rusqlite"]
 mongodb = ["dep:mongodb", "dep:futures-util"]
 redis = ["dep:redis"]
 clickhouse = ["dep:reqwest"]
-all = ["postgres", "mysql", "sqlite", "mongodb", "redis", "clickhouse"]
+cassandra = ["dep:scylla"]
+all = ["postgres", "mysql", "sqlite", "mongodb", "redis", "clickhouse", "cassandra"]
 
 [dependencies]
 dbench-core = { workspace = true }
@@ -50,3 +51,6 @@ redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], opt
 
 # ClickHouse (HTTP interface)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }
+
+# Cassandra / ScyllaDB (native CQL protocol)
+scylla = { version = "0.13", optional = true }

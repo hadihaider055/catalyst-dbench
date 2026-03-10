@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ConnectionInfo, DatabaseSchema, HistoryEntry, QueryTab, SavedConnection, SavedQuery } from "@/lib/types";
-import { addConnection, getSchema } from "@/lib/commands";
+import { addConnection, getSchema, getCredential, storeCredential } from "@/lib/commands";
 import { generateId } from "@/lib/utils";
 
 interface AppState {
@@ -44,6 +44,11 @@ interface AppState {
 
   /** Connect to a saved connection (calls Tauri IPC). Password required for auth-enabled DBs. */
   connectSaved: (conn: SavedConnection, password?: string) => Promise<ConnectionInfo>;
+  /**
+   * Switch the active database for an existing connection by reconnecting.
+   * Updates all open tabs and the schema cache to use the new connection ID.
+   */
+  switchDatabase: (connectionId: string, database: string) => Promise<void>;
   /** Fetch and cache the schema for an active connection. */
   loadSchema: (connectionId: string) => Promise<void>;
 
@@ -141,6 +146,61 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     }
     set((s) => ({ activeConnections: [...s.activeConnections.filter((c) => c.id !== info.id), info] }));
     return info;
+  },
+
+  switchDatabase: async (connectionId, database) => {
+    const { savedConnections } = get();
+    const saved = savedConnections.find((c) => c.id === connectionId);
+    if (!saved) return;
+
+    let password: string | undefined;
+    try {
+      password = (await getCredential(connectionId)) ?? undefined;
+    } catch { /* no credential stored */ }
+
+    const result = await addConnection({
+      name: saved.name,
+      db_type: saved.db_type,
+      host: saved.host,
+      port: saved.port,
+      database,
+      username: saved.username,
+      password,
+      tls_enabled: saved.tls_enabled,
+      read_only: saved.read_only,
+      ssh_enabled: saved.ssh_enabled,
+      ssh_host: saved.ssh_host,
+      ssh_port: saved.ssh_port,
+      ssh_username: saved.ssh_username,
+      ssh_auth_method: saved.ssh_auth_method,
+      ssh_key_path: saved.ssh_key_path,
+    });
+
+    const newInfo = result.info;
+    const newId = newInfo.id;
+
+    if (password) {
+      try { await storeCredential(newId, password); } catch { /* ignore */ }
+    }
+
+    get().removeSavedConnection(connectionId);
+    get().upsertSavedConnection({ ...saved, id: newId, database });
+
+    set((s) => ({
+      activeConnections: [
+        ...s.activeConnections.filter((c) => c.id !== connectionId),
+        newInfo,
+      ],
+      tabs: s.tabs.map((t) =>
+        t.connection_id === connectionId
+          ? { ...t, connection_id: newId, connection_name: t.connection_name }
+          : t
+      ),
+      schemas: Object.fromEntries(
+        Object.entries(s.schemas).filter(([k]) => k !== connectionId)
+      ),
+      selectedConnectionId: newId,
+    }));
   },
 
   loadSchema: async (connectionId) => {

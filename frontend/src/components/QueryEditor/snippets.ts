@@ -46,6 +46,14 @@ export const SNIPPETS: Record<string, { label: string; sql: string }[]> = {
     { label: "Tables",    sql: "SHOW TABLES;" },
     { label: "Databases", sql: "SHOW DATABASES;" },
   ],
+  cassandra: [
+    { label: "Keyspaces",   sql: "SELECT keyspace_name FROM system_schema.keyspaces;" },
+    { label: "Tables",      sql: "SELECT table_name FROM system_schema.tables WHERE keyspace_name = '<keyspace>';" },
+    { label: "Columns",     sql: "SELECT column_name, type, kind FROM system_schema.columns WHERE keyspace_name = '<keyspace>' AND table_name = '<table>';" },
+    { label: "Select",      sql: "SELECT * FROM <keyspace>.<table> LIMIT 100;" },
+    { label: "Create Table",sql: "CREATE TABLE <keyspace>.<table> (\n  id UUID PRIMARY KEY,\n  created_at TIMESTAMP\n);" },
+    { label: "Partitions",  sql: "SELECT * FROM system.size_estimates WHERE keyspace_name = '<keyspace>';" },
+  ],
   clickhouse: [
     { label: "Tables",      sql: "SHOW TABLES;" },
     { label: "Databases",   sql: "SHOW DATABASES;" },

@@ -18,6 +18,7 @@
 //! | `redis` | Redis | no |
 //! | `clickhouse` | ClickHouse (HTTP) | no |
 //! | `all` | All of the above | no |
+//! | `cassandra` | Cassandra / ScyllaDB | no |
 //!
 //! ## Adding a New Driver
 //!
@@ -50,6 +51,9 @@ pub mod redis;
 #[cfg(feature = "clickhouse")]
 pub mod clickhouse;
 
+#[cfg(feature = "cassandra")]
+pub mod cassandra;
+
 // Convenience re-exports
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresConfig, PostgresDriver};
@@ -68,3 +72,6 @@ pub use redis::{RedisConfig, RedisDriver};
 
 #[cfg(feature = "clickhouse")]
 pub use clickhouse::{ClickhouseConfig, ClickhouseDriver};
+
+#[cfg(feature = "cassandra")]
+pub use cassandra::{CassandraConfig, CassandraDriver};

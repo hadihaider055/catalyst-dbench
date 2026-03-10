@@ -6,6 +6,7 @@ use dbench_core::{
     types::{ConnectionInfo, ConnectionMode, DatabaseType},
 };
 use dbench_drivers::{
+    cassandra::{CassandraConfig, CassandraDriver},
     clickhouse::{ClickhouseConfig, ClickhouseDriver},
     mongodb::{MongoConfig, MongoDriver},
     mysql::{MysqlConfig, MysqlDriver},
@@ -253,6 +254,21 @@ pub async fn add_connection(
             register!(conn)
         }
 
+        DatabaseType::Cassandra => {
+            let config = CassandraConfig {
+                host: eff_host,
+                port: eff_port,
+                database: payload.database,
+                username: payload.username,
+                password: payload.password,
+                tls,
+                mode,
+                connect_timeout_ms: Some(10_000),
+            };
+            let conn = CassandraDriver.connect(&config).await.map_err(|e| e.to_string())?;
+            register!(conn)
+        }
+
         other => Err(format!("{other:?} is not yet supported.")),
     }
 }
@@ -377,6 +393,25 @@ pub async fn test_connection(
             let info = ClickhouseDriver.test_connection(&config).await.map_err(|e| e.to_string())?;
             Ok(format!(
                 "Connected to ClickHouse {} at {}:{}",
+                info.server_version.unwrap_or_else(|| "unknown".into()),
+                info.host, info.port
+            ))
+        }
+
+        DatabaseType::Cassandra => {
+            let config = CassandraConfig {
+                host: payload.host.clone(),
+                port: payload.port.unwrap_or(9042),
+                database: payload.database,
+                username: payload.username,
+                password: payload.password,
+                tls,
+                mode,
+                connect_timeout_ms: Some(5_000),
+            };
+            let info = CassandraDriver.test_connection(&config).await.map_err(|e| e.to_string())?;
+            Ok(format!(
+                "Connected to Cassandra {} at {}:{}",
                 info.server_version.unwrap_or_else(|| "unknown".into()),
                 info.host, info.port
             ))
@@ -515,6 +550,12 @@ pub async fn list_databases(
         }
         DatabaseType::Mysql => "SHOW DATABASES",
         DatabaseType::Clickhouse => "SHOW DATABASES",
+        DatabaseType::Cassandra => {
+            "SELECT keyspace_name FROM system_schema.keyspaces \
+             WHERE keyspace_name NOT IN \
+             ('system','system_auth','system_distributed','system_traces',\
+             'system_views','system_virtual_schema')"
+        }
         _ => return Err(format!("{db_type:?} does not support listing databases")),
     };
 
