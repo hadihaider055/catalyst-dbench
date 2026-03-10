@@ -551,7 +551,7 @@ function DataTable({ tab }: Props) {
               <button
                 className="block w-full text-left px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-overlay hover:text-text-primary"
                 onClick={() => {
-                  exportCsv(headers, result.rows);
+                  void exportCsv(headers, result.rows);
                   setExportMenuOpen(false);
                 }}
               >
@@ -560,7 +560,7 @@ function DataTable({ tab }: Props) {
               <button
                 className="block w-full text-left px-3 py-1.5 text-xs text-text-secondary hover:bg-surface-overlay hover:text-text-primary"
                 onClick={() => {
-                  exportJson(headers, result.rows);
+                  void exportJson(headers, result.rows);
                   setExportMenuOpen(false);
                 }}
               >
@@ -741,52 +741,11 @@ function DataTable({ tab }: Props) {
 
       {/* Cell expand modal */}
       {expandedCell && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setExpandedCell(null)}
-        >
-          <div
-            className="bg-surface-raised border border-surface-border rounded-lg w-[600px] max-h-[80vh] flex flex-col shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
-              <span className="text-xs font-semibold text-text-primary">
-                {expandedCell.header}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  className="text-xs text-text-muted hover:text-accent flex items-center gap-1"
-                  onClick={() =>
-                    navigator.clipboard.writeText(expandedCell.value)
-                  }
-                >
-                  <Copy size={11} /> Copy
-                </button>
-                <button
-                  className="text-text-muted hover:text-text-primary"
-                  onClick={() => setExpandedCell(null)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              <pre className="text-xs text-text-primary font-mono whitespace-pre-wrap break-all">
-                {(() => {
-                  try {
-                    return JSON.stringify(
-                      JSON.parse(expandedCell.value),
-                      null,
-                      2,
-                    );
-                  } catch {
-                    return expandedCell.value;
-                  }
-                })()}
-              </pre>
-            </div>
-          </div>
-        </div>
+        <CellExpandModal
+          header={expandedCell.header}
+          value={expandedCell.value}
+          onClose={() => setExpandedCell(null)}
+        />
       )}
 
       {/* Confirm SQL execution modal */}
@@ -801,6 +760,145 @@ function DataTable({ tab }: Props) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ── Cell expand modal ─────────────────────────────────────────────────────────
+
+function parseHexBytes(value: string): Uint8Array | null {
+  const m = value.match(/^\\x([0-9a-fA-F]+)$/);
+  if (!m) return null;
+  const hex = m[1];
+  if (hex.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function isImageBytes(bytes: Uint8Array): "png" | "jpeg" | "gif" | "webp" | null {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "gif";
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[4] === 0x57) return "webp";
+  return null;
+}
+
+function HexDump({ bytes }: { bytes: Uint8Array }) {
+  const rows: Array<{ offset: number; hex: string[]; ascii: string }> = [];
+  for (let i = 0; i < Math.min(bytes.length, 512); i += 16) {
+    const chunk = bytes.slice(i, i + 16);
+    const hex = Array.from(chunk).map((b) => b.toString(16).padStart(2, "0"));
+    const ascii = Array.from(chunk)
+      .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
+      .join("");
+    rows.push({ offset: i, hex, ascii });
+  }
+  return (
+    <div className="font-mono text-2xs leading-5 select-text">
+      <div className="text-text-muted mb-1 flex gap-4">
+        <span className="w-12">Offset</span>
+        <span className="flex-1">Hex</span>
+        <span>ASCII</span>
+      </div>
+      {rows.map((row) => (
+        <div key={row.offset} className="flex gap-4 hover:bg-surface-overlay rounded px-0.5">
+          <span className="w-12 text-text-muted">{row.offset.toString(16).padStart(4, "0")}</span>
+          <span className="flex-1">
+            {row.hex.slice(0, 8).join(" ")}
+            {row.hex.length > 8 && <span className="mx-1.5" />}
+            {row.hex.slice(8).join(" ")}
+          </span>
+          <span className="text-text-muted">{row.ascii}</span>
+        </div>
+      ))}
+      {bytes.length > 512 && (
+        <div className="text-text-muted mt-1">… {bytes.length - 512} more bytes</div>
+      )}
+    </div>
+  );
+}
+
+function CellExpandModal({
+  header,
+  value,
+  onClose,
+}: {
+  header: string;
+  value: string;
+  onClose: () => void;
+}) {
+  const bytes = parseHexBytes(value);
+  const imageType = bytes ? isImageBytes(bytes) : null;
+  const imageUrl = imageType && bytes
+    ? URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: `image/${imageType}` }))
+    : null;
+
+  const displayText = (() => {
+    if (bytes) return value; // raw hex string
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
+    }
+  })();
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface-raised border border-surface-border rounded-lg w-[600px] max-h-[80vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-text-primary">{header}</span>
+            {bytes && (
+              <span className="text-2xs text-text-muted bg-surface-overlay rounded px-1.5 py-0.5">
+                {bytes.length} bytes
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="text-xs text-text-muted hover:text-accent flex items-center gap-1"
+              onClick={() => navigator.clipboard.writeText(value)}
+            >
+              <Copy size={11} /> Copy
+            </button>
+            <button
+              className="text-text-muted hover:text-text-primary"
+              onClick={onClose}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4">
+          {imageUrl ? (
+            <div className="space-y-3">
+              <img
+                src={imageUrl}
+                alt={header}
+                className="max-w-full max-h-64 rounded border border-surface-border object-contain"
+                onLoad={() => URL.revokeObjectURL(imageUrl)}
+              />
+              <HexDump bytes={bytes!} />
+            </div>
+          ) : bytes ? (
+            <HexDump bytes={bytes} />
+          ) : (
+            <pre className="text-xs text-text-primary font-mono whitespace-pre-wrap break-all">
+              {displayText}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

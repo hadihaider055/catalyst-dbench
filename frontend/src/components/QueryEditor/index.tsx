@@ -14,6 +14,8 @@ import {
   Plus,
   GitBranch,
   Bookmark,
+  FolderOpen,
+  HardDriveDownload,
 } from "lucide-react";
 
 // Utils
@@ -22,6 +24,8 @@ import { executeQuery } from "@/lib/commands";
 import { formatDuration } from "@/lib/utils";
 import type { QueryTab } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 
 // SQL snippets
 import { SQL_DB_TYPES, getSnippets, SQL_KEYWORDS } from "./snippets";
@@ -39,6 +43,7 @@ export default function QueryEditor({ tab }: Props) {
     setEditorFontSize,
     theme,
     activeConnections,
+    addToast,
   } = useAppStore();
   const [savePrompt, setSavePrompt] = useState<string | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -147,6 +152,39 @@ export default function QueryEditor({ tab }: Props) {
   const format = useCallback(() => {
     editorRef.current?.getAction("editor.action.formatDocument")?.run();
   }, []);
+
+  const openFile = useCallback(async () => {
+    try {
+      const filters = tab.db_type === "mongodb"
+        ? [{ name: "JSON / Text", extensions: ["json", "txt"] }]
+        : [{ name: "SQL / Text", extensions: ["sql", "txt", "cql"] }];
+      const path = await open({ multiple: false, filters });
+      if (!path || typeof path !== "string") return;
+      const content = await readTextFile(path);
+      const fileName = path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? tab.title;
+      updateTab(tab.id, { sql: content, title: fileName });
+      editorRef.current?.setValue(content);
+      addToast(`Opened ${path.split("/").pop() ?? path}`, "info");
+    } catch (e) {
+      addToast(`Open file failed: ${String(e)}`, "error");
+    }
+  }, [tab.id, tab.title, updateTab, addToast]);
+
+  const saveFile = useCallback(async () => {
+    try {
+      const content = editorRef.current?.getValue() ?? tab.sql;
+      const ext = tab.db_type === "mongodb" ? "json" : "sql";
+      const path = await save({
+        defaultPath: `${tab.title}.${ext}`,
+        filters: [{ name: ext === "json" ? "JSON Files" : "SQL Files", extensions: [ext] }],
+      });
+      if (!path) return;
+      await writeTextFile(path, content);
+      addToast(`Saved to ${path.split("/").pop() ?? path}`);
+    } catch (e) {
+      addToast(`Save failed: ${String(e)}`, "error");
+    }
+  }, [tab.sql, tab.db_type, tab.title, addToast]);
 
   // ── Contextual schema-aware intellisense ────────────────────────────────────
   useEffect(() => {
@@ -390,6 +428,7 @@ export default function QueryEditor({ tab }: Props) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && savePrompt.trim()) {
                   saveQuery(savePrompt.trim(), editorRef.current?.getValue() ?? tab.sql, tab.db_type);
+                  addToast(`Query "${savePrompt.trim()}" saved`);
                   setSavePrompt(null);
                 } else if (e.key === "Escape") {
                   setSavePrompt(null);
@@ -403,6 +442,7 @@ export default function QueryEditor({ tab }: Props) {
               onClick={() => {
                 if (savePrompt.trim()) {
                   saveQuery(savePrompt.trim(), editorRef.current?.getValue() ?? tab.sql, tab.db_type);
+                  addToast(`Query "${savePrompt.trim()}" saved`);
                   setSavePrompt(null);
                 }
               }}
@@ -426,6 +466,26 @@ export default function QueryEditor({ tab }: Props) {
             Save
           </button>
         )}
+
+        <div className="w-px h-4 bg-surface-border mx-0.5" />
+
+        <button
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-overlay hover:bg-surface-border text-text-secondary rounded text-xs transition-colors"
+          onClick={openFile}
+          title="Open SQL file"
+        >
+          <FolderOpen size={11} />
+          Open
+        </button>
+
+        <button
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-overlay hover:bg-surface-border text-text-secondary rounded text-xs transition-colors"
+          onClick={saveFile}
+          title="Save SQL to file"
+        >
+          <HardDriveDownload size={11} />
+          Save
+        </button>
 
         <div className="flex-1" />
 

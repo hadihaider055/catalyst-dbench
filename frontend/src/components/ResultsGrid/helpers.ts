@@ -1,5 +1,6 @@
 import type { Row } from "@/lib/types";
 import { displayValue } from "@/lib/types";
+import { useAppStore } from "@/stores/useAppStore";
 
 export const SQL_DB_TYPES = [
   "postgres", "mysql", "sqlite", "cockroachdb", "mssql", "oracle", "clickhouse",
@@ -15,28 +16,48 @@ export function escapeCsvCell(value: string): string {
   return value;
 }
 
-export function exportCsv(headers: string[], rows: Row[]) {
+export async function exportCsv(headers: string[], rows: Row[]) {
   const lines = [
     headers.map(escapeCsvCell).join(","),
     ...rows.map((r) => r.values.map((v) => escapeCsvCell(displayValue(v ?? { type: "null" }))).join(",")),
   ];
-  triggerDownload(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" }), "csv");
+  await saveToDisk(lines.join("\n"), "export", "csv", `Exported ${rows.length} rows as CSV`);
 }
 
-export function exportJson(headers: string[], rows: Row[]) {
+export async function exportJson(headers: string[], rows: Row[]) {
   const data = rows.map((r) =>
     Object.fromEntries(headers.map((h, i) => [h, displayValue(r.values[i] ?? { type: "null" })]))
   );
-  triggerDownload(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "json");
+  await saveToDisk(JSON.stringify(data, null, 2), "export", "json", `Exported ${rows.length} rows as JSON`);
 }
 
-export function triggerDownload(blob: Blob, ext: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `export-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.${ext}`;
-  a.click();
-  URL.revokeObjectURL(url);
+/** Save text content to disk via Tauri save dialog. Works on all platforms (macOS WKWebView-safe). */
+export async function saveToDisk(
+  content: string,
+  baseName: string,
+  ext: string,
+  successMessage?: string,
+): Promise<void> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+  const ts = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+  try {
+    const path = await save({
+      defaultPath: `${baseName}-${ts}.${ext}`,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    });
+    if (!path) return; // user cancelled
+    await writeTextFile(path, content);
+    const fileName = path.split("/").pop() ?? path.split("\\").pop() ?? path;
+    useAppStore.getState().addToast(successMessage ?? `Saved to ${fileName}`);
+  } catch (e) {
+    useAppStore.getState().addToast(`Save failed: ${String(e)}`, "error");
+  }
+}
+
+/** @deprecated Use saveToDisk instead — blob URL downloads don't work in macOS WKWebView */
+export function triggerDownload(_blob: Blob, _ext: string) {
+  // No-op: replaced by saveToDisk. Kept for API compatibility.
 }
 
 // ── SQL helpers ────────────────────────────────────────────────────────────────

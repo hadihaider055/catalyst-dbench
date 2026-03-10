@@ -9,9 +9,10 @@ import {
   Database,
   ChevronRight,
   Network,
+  Code2,
 } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
-import { executeQuery, listDatabases } from "@/lib/commands";
+import { executeQuery, listDatabases, getObjectDdl } from "@/lib/commands";
 import type { DatabaseSchema } from "@/lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../ContextMenu/index";
 import DangerConfirm from "./DangerConfirm";
@@ -71,7 +72,7 @@ interface Props {
 const MULTI_DB_TYPES = new Set(["postgres", "mysql", "cockroachdb", "clickhouse", "cassandra"]);
 
 export default function SchemaTree({ connectionId }: Props) {
-  const { schemas, loadSchema, openTab, openERDiagramTab, activeConnections, switchDatabase } =
+  const { schemas, loadSchema, openTab, openERDiagramTab, openDdlTab, activeConnections, switchDatabase } =
     useAppStore();
   const schema = schemas[connectionId];
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
@@ -186,7 +187,10 @@ export default function SchemaTree({ connectionId }: Props) {
       {
         label: "Copy name",
         icon: <Eye size={11} />,
-        onClick: () => navigator.clipboard.writeText(ctx.name),
+        onClick: () => {
+          navigator.clipboard.writeText(ctx.name);
+          useAppStore.getState().addToast(`Copied "${ctx.name}"`, "info");
+        },
       },
     ];
     if (isSql && ctx.kind === "table") {
@@ -201,13 +205,17 @@ export default function SchemaTree({ connectionId }: Props) {
       items.push({ separator: true });
       if (ctx.kind === "table" || ctx.kind === "view") {
         items.push({
-          label: "Copy CREATE statement",
-          onClick: () =>
-            openQueryTab(
-              dbType === "mysql"
-                ? `SHOW CREATE TABLE ${fqn};`
-                : `SELECT pg_get_tabledef('${fqn}');`,
-            ),
+          label: "View DDL",
+          icon: <Code2 size={11} />,
+          onClick: async () => {
+            if (!conn) return;
+            try {
+              const ddl = await getObjectDdl(connectionId, dbType, ctx.name, ctx.schema ?? null, ctx.kind);
+              openDdlTab(connectionId, conn.host, dbType, ctx.name, ddl);
+            } catch (e) {
+              console.error("get_object_ddl failed:", e);
+            }
+          },
         });
         if (dbType === "postgres") {
           items.push({
@@ -297,8 +305,33 @@ export default function SchemaTree({ connectionId }: Props) {
     !keyPatterns.length
   ) {
     return (
-      <div className="px-2 py-1.5 text-2xs text-text-muted italic">
-        No objects found
+      <div className="py-0.5">
+        {/* Keep the DB switcher visible even when empty so user can switch back */}
+        {MULTI_DB_TYPES.has(dbType) && databases.length > 1 && (
+          <div className="flex items-center justify-between px-2 py-0.5 mb-0.5">
+            <div className="flex items-center gap-1 min-w-0">
+              <Database size={9} className="text-text-muted flex-shrink-0" />
+              <select
+                value={conn?.database ?? dbSchema.name}
+                onChange={(e) => handleSwitchDatabase(e.target.value)}
+                disabled={switchingDb}
+                className="text-2xs text-text-secondary bg-transparent border-none outline-none cursor-pointer truncate max-w-[120px] hover:text-accent transition-colors"
+                title="Switch database"
+              >
+                {databases.map((db) => (
+                  <option key={db} value={db}>{db}</option>
+                ))}
+              </select>
+            </div>
+            {switchingDb && <RefreshCw size={10} className="animate-spin text-text-muted" />}
+          </div>
+        )}
+        <div className="px-2 py-1.5 text-2xs text-text-muted italic">
+          No objects found
+          {MULTI_DB_TYPES.has(dbType) && databases.length > 1 && (
+            <div className="mt-1 not-italic text-text-muted">Use the dropdown above to switch databases.</div>
+          )}
+        </div>
       </div>
     );
   }

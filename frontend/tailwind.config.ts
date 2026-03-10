@@ -4,6 +4,25 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      keyframes: {
+        shrink: {
+          "0%": { width: "100%" },
+          "100%": { width: "0%" },
+        },
+        "slide-in-from-right-4": {
+          "0%": { transform: "translateX(1rem)", opacity: "0" },
+          "100%": { transform: "translateX(0)", opacity: "1" },
+        },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+      },
+      animation: {
+        shrink: "shrink 3.5s linear forwards",
+        "slide-in-from-right-4": "slide-in-from-right-4 0.2s ease-out",
+        "fade-in": "fade-in 0.2s ease-out",
+      },
       colors: {
         // Colors reference CSS custom properties so they switch with data-theme
         surface: {

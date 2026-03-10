@@ -4,7 +4,18 @@ import type { ConnectionInfo, DatabaseSchema, HistoryEntry, QueryTab, SavedConne
 import { addConnection, getSchema, getCredential, storeCredential } from "@/lib/commands";
 import { generateId } from "@/lib/utils";
 
+export interface Toast {
+  id: string;
+  message: string;
+  type: "success" | "error" | "info";
+}
+
 interface AppState {
+  // Toasts
+  toasts: Toast[];
+  addToast: (message: string, type?: Toast["type"]) => void;
+  removeToast: (id: string) => void;
+
   // Active connections (from Tauri backend)
   activeConnections: ConnectionInfo[];
   // Saved connection configs (local, no passwords)
@@ -54,6 +65,7 @@ interface AppState {
 
   openTab: (connectionId: string, connectionName: string, dbType: import("@/lib/types").DatabaseType, title?: string) => string;
   openERDiagramTab: (connectionId: string, connectionName: string, dbType: import("@/lib/types").DatabaseType) => string;
+  openDdlTab: (connectionId: string, connectionName: string, dbType: import("@/lib/types").DatabaseType, objectName: string, ddlContent: string) => string;
   closeTab: (tabId: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (tabId: string) => void;
@@ -68,6 +80,14 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>()(persist((set, get) => ({
+  toasts: [],
+  addToast: (message, type = "success") => {
+    const id = generateId();
+    set((s) => ({ toasts: [...s.toasts, { id, message, type }] }));
+    setTimeout(() => get().removeToast(id), 3500);
+  },
+  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
   activeConnections: [],
   savedConnections: [],
   schemas: {},
@@ -227,6 +247,34 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       sql: "",
       running: false,
       kind: "query",
+    };
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
+    return id;
+  },
+
+  openDdlTab: (connectionId, connectionName, dbType, objectName, ddlContent) => {
+    const existing = get().tabs.find(
+      (t) => t.kind === "ddl" && t.ddl_object === objectName && t.connection_id === connectionId,
+    );
+    if (existing) {
+      set((s) => ({
+        tabs: s.tabs.map((t) => t.id === existing.id ? { ...t, ddl_content: ddlContent } : t),
+        activeTabId: existing.id,
+      }));
+      return existing.id;
+    }
+    const id = generateId();
+    const tab: QueryTab = {
+      id,
+      connection_id: connectionId,
+      connection_name: connectionName,
+      db_type: dbType,
+      title: objectName,
+      sql: "",
+      running: false,
+      kind: "ddl",
+      ddl_content: ddlContent,
+      ddl_object: objectName,
     };
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
     return id;

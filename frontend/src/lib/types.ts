@@ -149,8 +149,10 @@ export interface QueryTab {
   result?: QueryResult;
   error?: string;
   running: boolean;
-  kind?: "query" | "er_diagram";
+  kind?: "query" | "er_diagram" | "ddl";
   er_connection_id?: string;
+  ddl_content?: string;
+  ddl_object?: string;
 }
 
 export interface ForeignKeySchema {

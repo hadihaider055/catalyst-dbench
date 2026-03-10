@@ -60,6 +60,15 @@ export const getSchema = (connectionId: string): Promise<DatabaseSchema> =>
 export const listDatabases = (connectionId: string): Promise<string[]> =>
   invoke("list_databases", { connectionId });
 
+export const getObjectDdl = (
+  connectionId: string,
+  dbType: string,
+  objectName: string,
+  schemaName: string | null,
+  kind: string,
+): Promise<string> =>
+  invoke("get_object_ddl", { connectionId, dbType, objectName, schemaName, kind });
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export const getVersion = (): Promise<string> => invoke("get_version");

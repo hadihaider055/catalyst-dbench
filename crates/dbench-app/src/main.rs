@@ -59,6 +59,7 @@ fn main() {
             commands::query::execute_query,
             commands::query::execute_batch,
             commands::schema::get_schema,
+            commands::schema::get_object_ddl,
             commands::app::get_version,
             commands::app::get_audit_log_path,
         ])
