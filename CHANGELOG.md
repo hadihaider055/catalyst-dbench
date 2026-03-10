@@ -1,3 +1,10 @@
+## [1.2.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.1.0...v1.2.0) (2026-03-10)
+
+### Features
+
+* **drivers:** add Cassandra driver and multi-database switcher ([93a06ac](https://github.com/hadihaider055/catalyst-dbench/commit/93a06ac13e1926a658c0736bfb3173c23b07eda8))
+* **ui:** toast system, DDL viewer, explain timing bars, hex dump, file open/save, NoSQL menu guard ([5e35074](https://github.com/hadihaider055/catalyst-dbench/commit/5e3507427e45a6d049a37d73af06915b886536d9))
+
 ## [1.1.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.0.0...v1.1.0) (2026-03-08)
 
 ### Features
