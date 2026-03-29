@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/Catalyst-DBench/catalyst-dbench/compare/v1.2.0...v1.3.0) (2026-03-29)
+
+### Features
+
+* **mongodb:** table treeview display with tanstack virtualizer ([6f3aba3](https://github.com/Catalyst-DBench/catalyst-dbench/commit/6f3aba3ff44a2429f90119796598fab80c69729d))
+
 ## [1.2.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.1.0...v1.2.0) (2026-03-10)
 
 ### Features
