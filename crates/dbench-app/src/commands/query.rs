@@ -3,6 +3,7 @@
 use dbench_core::{query::Query, result::QueryResult};
 use serde::Deserialize;
 use tauri::State;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -16,7 +17,7 @@ pub struct QueryPayload {
     pub explain: Option<bool>,
 }
 
-/// Execute a single query on a connection.
+/// Execute a single query on a connection. Supports cancellation via `cancel_query`.
 #[tauri::command]
 pub async fn execute_query(
     state: State<'_, AppState>,
@@ -39,11 +40,34 @@ pub async fn execute_query(
         query = query.explain();
     }
 
-    state
-        .executor
-        .execute(conn_id, query)
-        .await
-        .map_err(|e| e.to_string())
+    let token = CancellationToken::new();
+    state.cancel_tokens.insert(conn_id, token.clone());
+
+    let result = tokio::select! {
+        res = state.executor.execute(conn_id, query) => res,
+        _ = token.cancelled() => {
+            Err(dbench_core::error::CatalystError::QueryFailed {
+                message: "Query cancelled".into(),
+                code: Some("CANCELLED".into()),
+            })
+        }
+    };
+
+    state.cancel_tokens.remove(&conn_id);
+    result.map_err(|e| e.to_string())
+}
+
+/// Cancel an in-flight query for the given connection.
+#[tauri::command]
+pub async fn cancel_query(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<(), String> {
+    let conn_id = Uuid::parse_str(&connection_id).map_err(|e| e.to_string())?;
+    if let Some((_, token)) = state.cancel_tokens.remove(&conn_id) {
+        token.cancel();
+    }
+    Ok(())
 }
 
 /// Execute multiple queries in sequence.

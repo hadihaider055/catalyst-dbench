@@ -11,7 +11,7 @@ use dbench_core::{
     error::CatalystError,
     query::Query,
     result::{Column, ColumnType, QueryResult, Row, Value},
-    schema::{CollectionSchema, DatabaseSchema, InferredField, IndexSchema, SchemaObject},
+    schema::{CollectionSchema, DatabaseSchema, IndexSchema, InferredField, SchemaObject},
     types::{ConnectionInfo, ConnectionMode, DatabaseType},
     Result,
 };
@@ -90,9 +90,15 @@ impl Driver for MongoDriver {
     type Connection = MongoConnection;
     type Config = MongoConfig;
 
-    fn name(&self) -> &'static str { "mongodb" }
-    fn database_type(&self) -> DatabaseType { DatabaseType::Mongodb }
-    fn default_port(&self) -> Option<u16> { Some(27017) }
+    fn name(&self) -> &'static str {
+        "mongodb"
+    }
+    fn database_type(&self) -> DatabaseType {
+        DatabaseType::Mongodb
+    }
+    fn default_port(&self) -> Option<u16> {
+        Some(27017)
+    }
 
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
         config.validate()?;
@@ -114,17 +120,23 @@ impl Driver for MongoDriver {
                     )
                 }
                 (Some(user), None) => {
-                    format!("{}://{}@{}:{}/{}", scheme, user, config.host, config.port, config.database)
+                    format!(
+                        "{}://{}@{}:{}/{}",
+                        scheme, user, config.host, config.port, config.database
+                    )
                 }
-                _ => format!("{}://{}:{}/{}", scheme, config.host, config.port, config.database),
+                _ => format!(
+                    "{}://{}:{}/{}",
+                    scheme, config.host, config.port, config.database
+                ),
             }
         };
 
         let timeout = Duration::from_millis(config.connect_timeout_ms.unwrap_or(10_000));
 
-        let mut client_options = ClientOptions::parse(&conn_str)
-            .await
-            .map_err(|e| CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string()))?;
+        let mut client_options = ClientOptions::parse(&conn_str).await.map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string())
+        })?;
 
         // Resolve the database name: explicit config > URI path component > "admin" (default auth db).
         // We always need *some* database to send the initial ping, but inspect_schema will
@@ -142,7 +154,10 @@ impl Driver for MongoDriver {
         client_options.connect_timeout = Some(timeout);
         client_options.server_selection_timeout = Some(timeout);
         client_options.server_api = Some(
-            ServerApi::builder().version(ServerApiVersion::V1).strict(false).build()
+            ServerApi::builder()
+                .version(ServerApiVersion::V1)
+                .strict(false)
+                .build(),
         );
 
         if let Some(rs) = &config.replica_set {
@@ -154,14 +169,17 @@ impl Driver for MongoDriver {
             "Connecting to MongoDB"
         );
 
-        let client = Client::with_options(client_options)
-            .map_err(|e| CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string()))?;
+        let client = Client::with_options(client_options).map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string())
+        })?;
 
         let db = client.database(&db_name);
 
         db.run_command(doc! { "ping": 1 }, None)
             .await
-            .map_err(|e| CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string()))?;
+            .map_err(|e| {
+                CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string())
+            })?;
 
         let server_version = db
             .run_command(doc! { "buildInfo": 1 }, None)
@@ -210,7 +228,9 @@ pub struct MongoConnection {
 impl Connection for MongoConnection {
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         if !self.alive {
-            return Err(CatalystError::ConnectionLost { reason: "connection is closed".into() });
+            return Err(CatalystError::ConnectionLost {
+                reason: "connection is closed".into(),
+            });
         }
 
         let start = Instant::now();
@@ -224,7 +244,8 @@ impl Connection for MongoConnection {
         let parsed: serde_json::Value = serde_json::from_str(&query.text)
             .map_err(|e| CatalystError::query_failed(format!("Invalid query JSON: {e}")))?;
 
-        let obj = parsed.as_object()
+        let obj = parsed
+            .as_object()
             .ok_or_else(|| CatalystError::query_failed("Query must be a JSON object"))?;
 
         // Write guard.
@@ -250,15 +271,17 @@ impl Connection for MongoConnection {
             // (it's our routing field, not part of the MongoDB protocol).
             let mut inner = obj.clone();
             inner.remove("db");
-            let inner_doc: Document = serde_json::from_value(serde_json::Value::Object(inner.clone()))
-                .map_err(|e| CatalystError::query_failed(e.to_string()))?;
+            let inner_doc: Document =
+                serde_json::from_value(serde_json::Value::Object(inner.clone()))
+                    .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
             // Only find and aggregate support explain natively.
             let explainable = inner.contains_key("find") || inner.contains_key("aggregate");
             if !explainable {
                 let plan = format!(
                     "explain is only supported for find and aggregate operations.\nOperation: {}",
-                    serde_json::to_string_pretty(&serde_json::Value::Object(inner)).unwrap_or_default()
+                    serde_json::to_string_pretty(&serde_json::Value::Object(inner))
+                        .unwrap_or_default()
                 );
                 return Ok(QueryResult {
                     columns: vec![],
@@ -273,12 +296,15 @@ impl Connection for MongoConnection {
                 "explain": inner_doc,
                 "verbosity": "executionStats",
             };
-            let result_doc = db.run_command(explain_cmd, None).await
+            let result_doc = db
+                .run_command(explain_cmd, None)
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
             let plan = serde_json::to_string_pretty(
-                &serde_json::to_value(&result_doc).unwrap_or(serde_json::Value::Null)
-            ).unwrap_or_else(|_| result_doc.to_string());
+                &serde_json::to_value(&result_doc).unwrap_or(serde_json::Value::Null),
+            )
+            .unwrap_or_else(|_| result_doc.to_string());
 
             return Ok(QueryResult {
                 columns: vec![],
@@ -292,20 +318,32 @@ impl Connection for MongoConnection {
         // Handle "find".
         if let Some(coll_name) = obj.get("find").and_then(|v| v.as_str()) {
             let collection = db.collection::<Document>(coll_name);
-            let filter: Option<Document> = obj.get("filter")
+            let filter: Option<Document> = obj
+                .get("filter")
                 .and_then(|v| serde_json::from_value(v.clone()).ok());
             let limit = obj.get("limit").and_then(|v| v.as_i64());
-            let projection: Option<Document> = obj.get("projection")
+            let skip = obj.get("skip").and_then(|v| v.as_u64());
+            let sort: Option<Document> = obj
+                .get("sort")
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+            let projection: Option<Document> = obj
+                .get("projection")
                 .and_then(|v| serde_json::from_value(v.clone()).ok());
 
             let mut options = FindOptions::default();
             options.limit = limit;
+            options.skip = skip;
+            options.sort = sort;
             options.projection = projection;
 
-            let cursor = collection.find(filter, options).await
+            let cursor = collection
+                .find(filter, options)
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
-            let docs: Vec<Document> = cursor.try_collect().await
+            let docs: Vec<Document> = cursor
+                .try_collect()
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
             return Ok(docs_to_result(docs, start.elapsed().as_millis() as u64));
@@ -314,14 +352,19 @@ impl Connection for MongoConnection {
         // Handle "aggregate".
         if let Some(coll_name) = obj.get("aggregate").and_then(|v| v.as_str()) {
             let collection = db.collection::<Document>(coll_name);
-            let pipeline: Vec<Document> = obj.get("pipeline")
+            let pipeline: Vec<Document> = obj
+                .get("pipeline")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default();
 
-            let cursor = collection.aggregate(pipeline, None).await
+            let cursor = collection
+                .aggregate(pipeline, None)
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
-            let docs: Vec<Document> = cursor.try_collect().await
+            let docs: Vec<Document> = cursor
+                .try_collect()
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
             return Ok(docs_to_result(docs, start.elapsed().as_millis() as u64));
@@ -330,11 +373,14 @@ impl Connection for MongoConnection {
         // Handle "insert".
         if let Some(coll_name) = obj.get("insert").and_then(|v| v.as_str()) {
             let collection = db.collection::<Document>(coll_name);
-            let documents: Vec<Document> = obj.get("documents")
+            let documents: Vec<Document> = obj
+                .get("documents")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default();
             let count = documents.len() as u64;
-            collection.insert_many(documents, None).await
+            collection
+                .insert_many(documents, None)
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
             return Ok(QueryResult {
                 columns: vec![],
@@ -347,27 +393,45 @@ impl Connection for MongoConnection {
 
         // Handle "update".
         if let Some(coll_name) = obj.get("update").and_then(|v| v.as_str()) {
-            let updates = obj.get("updates")
+            let updates = obj
+                .get("updates")
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| CatalystError::query_failed("update requires 'updates' array"))?;
 
             let mut total_modified = 0u64;
             for update_spec in updates {
-                let q: Document = coerce_objectids(serde_json::from_value(
-                    update_spec.get("q").cloned().unwrap_or(serde_json::Value::Object(Default::default()))
-                ).map_err(|e| CatalystError::query_failed(e.to_string()))?);
+                let q: Document = coerce_objectids(
+                    serde_json::from_value(
+                        update_spec
+                            .get("q")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Object(Default::default())),
+                    )
+                    .map_err(|e| CatalystError::query_failed(e.to_string()))?,
+                );
                 let u: Document = serde_json::from_value(
-                    update_spec.get("u").cloned().unwrap_or(serde_json::Value::Object(Default::default()))
-                ).map_err(|e| CatalystError::query_failed(e.to_string()))?;
-                let multi = update_spec.get("multi").and_then(|v| v.as_bool()).unwrap_or(false);
+                    update_spec
+                        .get("u")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Object(Default::default())),
+                )
+                .map_err(|e| CatalystError::query_failed(e.to_string()))?;
+                let multi = update_spec
+                    .get("multi")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
                 let collection = db.collection::<Document>(coll_name);
                 if multi {
-                    let res = collection.update_many(q, u, None).await
+                    let res = collection
+                        .update_many(q, u, None)
+                        .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_modified += res.modified_count;
                 } else {
-                    let res = collection.update_one(q, u, None).await
+                    let res = collection
+                        .update_one(q, u, None)
+                        .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_modified += res.modified_count;
                 }
@@ -383,24 +447,38 @@ impl Connection for MongoConnection {
 
         // Handle "delete".
         if let Some(coll_name) = obj.get("delete").and_then(|v| v.as_str()) {
-            let deletes = obj.get("deletes")
+            let deletes = obj
+                .get("deletes")
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| CatalystError::query_failed("delete requires 'deletes' array"))?;
 
             let mut total_deleted = 0u64;
             for delete_spec in deletes {
-                let q: Document = coerce_objectids(serde_json::from_value(
-                    delete_spec.get("q").cloned().unwrap_or(serde_json::Value::Object(Default::default()))
-                ).map_err(|e| CatalystError::query_failed(e.to_string()))?);
-                let limit = delete_spec.get("limit").and_then(|v| v.as_i64()).unwrap_or(1);
+                let q: Document = coerce_objectids(
+                    serde_json::from_value(
+                        delete_spec
+                            .get("q")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Object(Default::default())),
+                    )
+                    .map_err(|e| CatalystError::query_failed(e.to_string()))?,
+                );
+                let limit = delete_spec
+                    .get("limit")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1);
 
                 let collection = db.collection::<Document>(coll_name);
                 if limit == 0 {
-                    let res = collection.delete_many(q, None).await
+                    let res = collection
+                        .delete_many(q, None)
+                        .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_deleted += res.deleted_count;
                 } else {
-                    let res = collection.delete_one(q, None).await
+                    let res = collection
+                        .delete_one(q, None)
+                        .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_deleted += res.deleted_count;
                 }
@@ -418,9 +496,14 @@ impl Connection for MongoConnection {
         if let Some(cmd_val) = obj.get("command") {
             let cmd: Document = serde_json::from_value(cmd_val.clone())
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
-            let result_doc = db.run_command(cmd, None).await
+            let result_doc = db
+                .run_command(cmd, None)
+                .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
-            return Ok(docs_to_result(vec![result_doc], start.elapsed().as_millis() as u64));
+            return Ok(docs_to_result(
+                vec![result_doc],
+                start.elapsed().as_millis() as u64,
+            ));
         }
 
         Err(CatalystError::query_failed(
@@ -430,7 +513,8 @@ impl Connection for MongoConnection {
 
     async fn inspect_schema(&mut self) -> Result<DatabaseSchema> {
         // List all user-accessible databases, skipping internal ones the user can't use.
-        let db_names = self.client
+        let db_names = self
+            .client
             .list_database_names(None, None)
             .await
             .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
@@ -446,9 +530,7 @@ impl Connection for MongoConnection {
         for db_name in &user_dbs {
             let db = self.client.database(db_name);
 
-            let collection_names = db.list_collection_names(None)
-                .await
-                .unwrap_or_default();
+            let collection_names = db.list_collection_names(None).await.unwrap_or_default();
 
             for coll_name in collection_names {
                 let collection = db.collection::<Document>(&coll_name);
@@ -474,12 +556,17 @@ impl Connection for MongoConnection {
 
                 let index_cursor = collection.list_indexes(None).await.ok();
                 let indexes: Vec<IndexSchema> = if let Some(cursor) = index_cursor {
-                    cursor.try_collect::<Vec<_>>().await.unwrap_or_default()
+                    cursor
+                        .try_collect::<Vec<_>>()
+                        .await
+                        .unwrap_or_default()
                         .into_iter()
                         .map(|idx| {
                             let columns: Vec<String> = idx.keys.keys().cloned().collect();
-                            let is_unique = idx.options.as_ref().and_then(|o| o.unique).unwrap_or(false);
-                            let idx_name = idx.options
+                            let is_unique =
+                                idx.options.as_ref().and_then(|o| o.unique).unwrap_or(false);
+                            let idx_name = idx
+                                .options
                                 .as_ref()
                                 .and_then(|o| o.name.clone())
                                 .unwrap_or_else(|| columns.join("_"));
@@ -520,7 +607,11 @@ impl Connection for MongoConnection {
         Ok(DatabaseSchema {
             name: self.db_name.clone(),
             db_type: DatabaseType::Mongodb,
-            server_version: self.info.server_version.clone().unwrap_or_else(|| "MongoDB".into()),
+            server_version: self
+                .info
+                .server_version
+                .clone()
+                .unwrap_or_else(|| "MongoDB".into()),
             objects,
         })
     }
@@ -530,7 +621,9 @@ impl Connection for MongoConnection {
         let db = self.client.database(&self.db_name);
         db.run_command(doc! { "ping": 1 }, None)
             .await
-            .map_err(|e| CatalystError::ConnectionLost { reason: e.to_string() })?;
+            .map_err(|e| CatalystError::ConnectionLost {
+                reason: e.to_string(),
+            })?;
         Ok(start.elapsed())
     }
 
@@ -539,9 +632,15 @@ impl Connection for MongoConnection {
         Ok(())
     }
 
-    fn is_alive(&self) -> bool { self.alive }
-    fn info(&self) -> &ConnectionInfo { &self.info }
-    fn mode(&self) -> ConnectionMode { self.mode }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+    fn mode(&self) -> ConnectionMode {
+        self.mode
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -551,19 +650,21 @@ impl Connection for MongoConnection {
 /// Coerce string values in a filter document to ObjectId where possible.
 /// Needed because _id is stored as ObjectId but the frontend sends back a hex string.
 fn coerce_objectids(doc: Document) -> Document {
-    doc.into_iter().map(|(k, v)| {
-        let v = match v {
-            Bson::String(ref s) => {
-                if let Ok(oid) = mongodb::bson::oid::ObjectId::parse_str(s) {
-                    Bson::ObjectId(oid)
-                } else {
-                    v
+    doc.into_iter()
+        .map(|(k, v)| {
+            let v = match v {
+                Bson::String(ref s) => {
+                    if let Ok(oid) = mongodb::bson::oid::ObjectId::parse_str(s) {
+                        Bson::ObjectId(oid)
+                    } else {
+                        v
+                    }
                 }
-            }
-            other => other,
-        };
-        (k, v)
-    }).collect()
+                other => other,
+            };
+            (k, v)
+        })
+        .collect()
 }
 
 fn bson_type_name(bson: &Bson) -> &'static str {
@@ -585,16 +686,25 @@ fn bson_type_name(bson: &Bson) -> &'static str {
     }
 }
 
-fn collect_fields(doc: &Document, prefix: &str, out: &mut std::collections::HashMap<String, String>) {
+fn collect_fields(
+    doc: &Document,
+    prefix: &str,
+    out: &mut std::collections::HashMap<String, String>,
+) {
     for (key, val) in doc {
-        let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        let path = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
         match val {
             Bson::Document(nested) => {
                 out.entry(path.clone()).or_insert_with(|| "document".into());
                 collect_fields(nested, &path, out);
             }
             other => {
-                out.entry(path).or_insert_with(|| bson_type_name(other).into());
+                out.entry(path)
+                    .or_insert_with(|| bson_type_name(other).into());
             }
         }
     }
@@ -613,7 +723,8 @@ fn bson_to_value(bson: Bson) -> Value {
         Bson::DateTime(dt) => {
             let millis = dt.timestamp_millis();
             use chrono::TimeZone;
-            let ts = chrono::Utc.timestamp_millis_opt(millis)
+            let ts = chrono::Utc
+                .timestamp_millis_opt(millis)
                 .single()
                 .unwrap_or_else(chrono::Utc::now);
             Value::Timestamp(ts)
@@ -658,43 +769,62 @@ fn docs_to_result(docs: Vec<Document>, duration_ms: u64) -> QueryResult {
     }
 
     // Infer native_type from the first non-null value in each column.
-    let columns: Vec<Column> = field_order.iter().map(|name| {
-        let native_type = docs.iter()
-            .find_map(|doc| doc.get(name))
-            .map(|bson| match bson {
-                Bson::ObjectId(_) => "ObjectId",
-                Bson::String(_) => "String",
-                Bson::Int32(_) => "Int32",
-                Bson::Int64(_) => "Int64",
-                Bson::Double(_) => "Double",
-                Bson::Decimal128(_) => "Decimal128",
-                Bson::Boolean(_) => "Boolean",
-                Bson::DateTime(_) => "DateTime",
-                Bson::Timestamp(_) => "Timestamp",
-                Bson::Array(_) => "Array",
-                Bson::Document(_) => "Object",
-                Bson::Binary(_) => "Binary",
-                Bson::Null | Bson::Undefined => "null",
-                _ => "Mixed",
-            })
-            .unwrap_or("Mixed");
-        let col_type = match native_type {
-            "Int32" | "Int64" => ColumnType::Integer,
-            "Double" | "Decimal128" => ColumnType::Float,
-            "Boolean" => ColumnType::Boolean,
-            "DateTime" | "Timestamp" => ColumnType::Timestamp,
-            "Binary" => ColumnType::Bytes,
-            _ => ColumnType::Text,
-        };
-        Column { name: name.clone(), col_type, nullable: true, native_type: native_type.into() }
-    }).collect();
+    let columns: Vec<Column> = field_order
+        .iter()
+        .map(|name| {
+            let native_type = docs
+                .iter()
+                .find_map(|doc| doc.get(name))
+                .map(|bson| match bson {
+                    Bson::ObjectId(_) => "ObjectId",
+                    Bson::String(_) => "String",
+                    Bson::Int32(_) => "Int32",
+                    Bson::Int64(_) => "Int64",
+                    Bson::Double(_) => "Double",
+                    Bson::Decimal128(_) => "Decimal128",
+                    Bson::Boolean(_) => "Boolean",
+                    Bson::DateTime(_) => "DateTime",
+                    Bson::Timestamp(_) => "Timestamp",
+                    Bson::Array(_) => "Array",
+                    Bson::Document(_) => "Object",
+                    Bson::Binary(_) => "Binary",
+                    Bson::Null | Bson::Undefined => "null",
+                    _ => "Mixed",
+                })
+                .unwrap_or("Mixed");
+            let col_type = match native_type {
+                "Int32" | "Int64" => ColumnType::Integer,
+                "Double" | "Decimal128" => ColumnType::Float,
+                "Boolean" => ColumnType::Boolean,
+                "DateTime" | "Timestamp" => ColumnType::Timestamp,
+                "Binary" => ColumnType::Bytes,
+                _ => ColumnType::Text,
+            };
+            Column {
+                name: name.clone(),
+                col_type,
+                nullable: true,
+                native_type: native_type.into(),
+            }
+        })
+        .collect();
 
-    let rows: Vec<Row> = docs.into_iter().map(|mut doc| {
-        let values = field_order.iter().map(|field| {
-            doc.remove(field).map(bson_to_value).unwrap_or(Value::Null)
-        }).collect();
-        Row { values }
-    }).collect();
+    let rows: Vec<Row> = docs
+        .into_iter()
+        .map(|mut doc| {
+            let values = field_order
+                .iter()
+                .map(|field| doc.remove(field).map(bson_to_value).unwrap_or(Value::Null))
+                .collect();
+            Row { values }
+        })
+        .collect();
 
-    QueryResult { columns, rows, rows_affected: None, duration_ms, explain_plan: None }
+    QueryResult {
+        columns,
+        rows,
+        rows_affected: None,
+        duration_ms,
+        explain_plan: None,
+    }
 }

@@ -24,6 +24,7 @@ tauri-plugin-fs = "2"
 tauri-plugin-store = "2"      # Persistent key-value store for UI prefs
 
 tokio = { workspace = true }
+tokio-util = "0.7"
 dashmap = "5"
 serde = { workspace = true }
 secrecy = { workspace = true }

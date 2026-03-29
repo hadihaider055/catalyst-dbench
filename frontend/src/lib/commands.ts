@@ -46,6 +46,9 @@ export const getCredential = (connectionId: string): Promise<string | null> =>
 export const executeQuery = (payload: QueryPayload): Promise<QueryResult> =>
   invoke("execute_query", { payload });
 
+export const cancelQuery = (connectionId: string): Promise<void> =>
+  invoke("cancel_query", { connectionId });
+
 export const executeBatch = (
   connectionId: string,
   queries: string[]

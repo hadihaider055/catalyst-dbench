@@ -9,10 +9,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
-use argon2::{
-    password_hash::rand_core::RngCore,
-    Argon2, Params,
-};
+use argon2::{password_hash::rand_core::RngCore, Argon2, Params};
 use base64::Engine as _;
 use sha2::{Digest, Sha256, Sha512};
 use zeroize::ZeroizeOnDrop;

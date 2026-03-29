@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 
 // TanStack Table
 import {
@@ -6,13 +6,14 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   flexRender,
   createColumnHelper,
   type SortingState,
-  type PaginationState,
   type ColumnDef,
 } from "@tanstack/react-table";
+
+// TanStack Virtual
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 // Lucide icons
 import {
@@ -20,19 +21,20 @@ import {
   CheckCircle2,
   Download,
   Copy,
-  ChevronLeft,
-  ChevronRight,
   X,
   Edit3,
   Save,
   XCircle,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // Components
 import ConfirmEditModal from "./ConfirmEditModal";
 import ContextMenu, { type ContextMenuEntry } from "../ContextMenu/index";
 import ExplainPlan from "../ExplainPlan/index";
+import MongoDocTree from "./MongoDocTree";
 
 // Utils
 import { cn, formatRowCount, formatDuration } from "@/lib/utils";
@@ -44,7 +46,6 @@ import { displayValue } from "@/lib/types";
 import type { QueryTab, Row } from "@/lib/types";
 import {
   SQL_DB_TYPES,
-  PAGE_SIZE_OPTIONS,
   escapeCsvCell,
   exportCsv,
   exportJson,
@@ -87,11 +88,9 @@ function DataTable({ tab }: Props) {
 
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 100,
-  });
-  const { pageIndex, pageSize } = pagination;
+  const [viewMode, setViewMode] = useState<"table" | "tree">("table");
+
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [expandedCell, setExpandedCell] = useState<{
     header: string;
@@ -120,14 +119,17 @@ function DataTable({ tab }: Props) {
   const isMongo = tab.db_type === "mongodb";
   const tableName = isMongo ? null : extractTableName(tab.sql);
   const collectionName = isMongo ? extractCollectionName(tab.sql) : null;
-  // The effective "table" identifier for edit operations
   const editTarget = tableName ?? collectionName;
 
-  // For MongoDB, extract the db override from the query JSON
   const mongoDb = useMemo(() => {
     if (!isMongo) return null;
-    try { return (JSON.parse(tab.sql) as Record<string, unknown>).db as string ?? null; }
-    catch { return null; }
+    try {
+      return (
+        ((JSON.parse(tab.sql) as Record<string, unknown>).db as string) ?? null
+      );
+    } catch {
+      return null;
+    }
   }, [isMongo, tab.sql]);
 
   const schema = schemas[tab.connection_id];
@@ -140,9 +142,8 @@ function DataTable({ tab }: Props) {
     )
       return null;
     if (isMongo) {
-      // MongoDB: use "_id" as the default PK — always present
       const hasId = result.columns.some((c) => c.name === "_id");
-      return hasId ? "_id" : result.columns[0]?.name ?? null;
+      return hasId ? "_id" : (result.columns[0]?.name ?? null);
     }
     const tbl = schema.objects.find(
       (o) =>
@@ -257,20 +258,32 @@ function DataTable({ tab }: Props) {
   const table = useReactTable({
     data: result.rows,
     columns,
-    state: { sorting, globalFilter, pagination },
+    state: { sorting, globalFilter },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
-    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    autoResetPageIndex: false,
   });
 
-  const visibleRows = table.getRowModel().rows;
+  const allRows = table.getRowModel().rows;
   const totalFiltered = table.getFilteredRowModel().rows.length;
-  const pageCount = table.getPageCount();
+
+  const rowVirtualizer = useVirtualizer({
+    count: allRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 29,
+    overscan: 10,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalVirtualSize = rowVirtualizer.getTotalSize();
+  const paddingTop =
+    virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
+  const paddingBottom =
+    virtualItems.length > 0
+      ? totalVirtualSize - (virtualItems[virtualItems.length - 1]?.end ?? 0)
+      : 0;
 
   // ── Row actions ────────────────────────────────────────────────────────────
 
@@ -336,7 +349,10 @@ function DataTable({ tab }: Props) {
       }
       if ((isSqlDb && tableName) || (isMongo && collectionName)) {
         items.push({ separator: true });
-        const pkVal = pkColIdx >= 0 ? displayValue(row.values[pkColIdx] ?? { type: "null" }) : null;
+        const pkVal =
+          pkColIdx >= 0
+            ? displayValue(row.values[pkColIdx] ?? { type: "null" })
+            : null;
         items.push({
           label: pendingDeletes.has(rowIdx) ? "Undo delete" : "Delete row…",
           icon: <Trash2 size={11} />,
@@ -344,7 +360,9 @@ function DataTable({ tab }: Props) {
           onClick: () => {
             if (!pkVal || pkVal === "NULL") {
               if (isSqlDb && tableName) {
-                setConfirmSql(`DELETE FROM ${tableName} -- WARNING: no PK detected;`);
+                setConfirmSql(
+                  `DELETE FROM ${tableName} -- WARNING: no PK detected;`,
+                );
               }
             } else {
               toggleDelete(rowIdx);
@@ -355,7 +373,16 @@ function DataTable({ tab }: Props) {
       }
       return items;
     },
-    [isSqlDb, isMongo, tableName, collectionName, pkColIdx, pkColumn, pendingDeletes, editMode],
+    [
+      isSqlDb,
+      isMongo,
+      tableName,
+      collectionName,
+      pkColIdx,
+      pkColumn,
+      pendingDeletes,
+      editMode,
+    ],
   );
 
   // ── Edit apply ─────────────────────────────────────────────────────────────
@@ -372,11 +399,25 @@ function DataTable({ tab }: Props) {
       const colName = headers[parseInt(colIdxStr)];
       if (isMongo && collectionName && pkColIdx >= 0) {
         const pkVal = displayValue(row.values[pkColIdx] ?? { type: "null" });
-        cmds.push(buildMongoUpdate(collectionName, mongoDb, pkColumn!, pkVal, colName, newVal));
+        cmds.push(
+          buildMongoUpdate(
+            collectionName,
+            mongoDb,
+            pkColumn!,
+            pkVal,
+            colName,
+            newVal,
+          ),
+        );
       } else if (tableName) {
         const pkVal = pkColIdx >= 0 ? sqlValue(row.values[pkColIdx]) : null;
-        const where = pkVal ? `WHERE ${pkColumn} = ${pkVal}` : "-- WARNING: no PK found";
-        const val = newVal === "" || newVal === "NULL" ? "NULL" : `'${newVal.replace(/'/g, "''")}'`;
+        const where = pkVal
+          ? `WHERE ${pkColumn} = ${pkVal}`
+          : "-- WARNING: no PK found";
+        const val =
+          newVal === "" || newVal === "NULL"
+            ? "NULL"
+            : `'${newVal.replace(/'/g, "''")}'`;
         cmds.push(`UPDATE ${tableName} SET \`${colName}\` = ${val} ${where};`);
       }
     }
@@ -387,7 +428,9 @@ function DataTable({ tab }: Props) {
         cmds.push(buildMongoDelete(collectionName, mongoDb, pkColumn!, pkVal));
       } else if (tableName) {
         const pkVal = pkColIdx >= 0 ? sqlValue(row.values[pkColIdx]) : null;
-        const where = pkVal ? `WHERE ${pkColumn} = ${pkVal}` : "-- WARNING: no PK found";
+        const where = pkVal
+          ? `WHERE ${pkColumn} = ${pkVal}`
+          : "-- WARNING: no PK found";
         cmds.push(`DELETE FROM ${tableName} ${where};`);
       }
     }
@@ -407,12 +450,16 @@ function DataTable({ tab }: Props) {
 
   const handleConfirmExecute = async (rawText: string) => {
     setApplyError(null);
-    // Each line is a separate command (SQL statement or MongoDB JSON command)
-    const cmds = rawText.split("\n").filter((s) => s.trim() && !s.trim().startsWith("--"));
+    const cmds = rawText
+      .split("\n")
+      .filter((s) => s.trim() && !s.trim().startsWith("--"));
     try {
       for (const cmd of cmds) {
         const t0 = Date.now();
-        const res = await executeQuery({ connection_id: tab.connection_id, sql: cmd.trim() });
+        const res = await executeQuery({
+          connection_id: tab.connection_id,
+          sql: cmd.trim(),
+        });
         addToHistory({
           id: crypto.randomUUID(),
           sql: cmd.trim(),
@@ -430,7 +477,10 @@ function DataTable({ tab }: Props) {
       if (tab.sql.trim()) {
         updateTab(tab.id, { running: true, result: undefined });
         try {
-          const refreshed = await executeQuery({ connection_id: tab.connection_id, sql: tab.sql.trim() });
+          const refreshed = await executeQuery({
+            connection_id: tab.connection_id,
+            sql: tab.sql.trim(),
+          });
           updateTab(tab.id, { result: refreshed, running: false });
         } catch {
           updateTab(tab.id, { running: false });
@@ -440,6 +490,25 @@ function DataTable({ tab }: Props) {
       setApplyError(String(e));
     }
   };
+
+  // ── MongoDB filter bar query handler ────────────────────────────────────────
+
+  const handleFilterQuery = useCallback(
+    (sql: string) => {
+      updateTab(tab.id, {
+        sql,
+        running: true,
+        result: undefined,
+        error: undefined,
+      });
+      executeQuery({ connection_id: tab.connection_id, sql })
+        .then((res) => updateTab(tab.id, { result: res, running: false }))
+        .catch((err) =>
+          updateTab(tab.id, { error: String(err), running: false }),
+        );
+    },
+    [tab.id, tab.connection_id, updateTab],
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -466,6 +535,34 @@ function DataTable({ tab }: Props) {
         </div>
 
         <div className="flex-1" />
+
+        {/* MongoDB view toggle */}
+        {isMongo && (
+          <div className="flex rounded border border-surface-border overflow-hidden text-xs">
+            <button
+              className={cn(
+                "px-2 py-0.5 transition-colors",
+                viewMode === "table"
+                  ? "bg-surface-overlay text-text-primary"
+                  : "text-text-muted hover:text-text-primary",
+              )}
+              onClick={() => setViewMode("table")}
+            >
+              Table
+            </button>
+            <button
+              className={cn(
+                "px-2 py-0.5 transition-colors border-l border-surface-border",
+                viewMode === "tree"
+                  ? "bg-surface-overlay text-text-primary"
+                  : "text-text-muted hover:text-text-primary",
+              )}
+              onClick={() => setViewMode("tree")}
+            >
+              Tree
+            </button>
+          </div>
+        )}
 
         {/* Edit mode controls */}
         {(isSqlDb || isMongo) && (
@@ -517,26 +614,8 @@ function DataTable({ tab }: Props) {
           className="bg-surface-overlay border border-surface-border rounded px-2 py-0.5 text-xs text-text-primary placeholder-text-muted outline-none focus:border-accent w-36"
           placeholder="Filter…"
           value={globalFilter}
-          onChange={(e) => {
-            setGlobalFilter(e.target.value);
-            setPagination((p) => ({ ...p, pageIndex: 0 }));
-          }}
+          onChange={(e) => setGlobalFilter(e.target.value)}
         />
-
-        {/* Page size */}
-        <select
-          className="bg-surface-overlay border border-surface-border rounded px-1.5 py-0.5 text-xs text-text-secondary outline-none cursor-pointer"
-          value={pageSize}
-          onChange={(e) =>
-            setPagination({ pageIndex: 0, pageSize: Number(e.target.value) })
-          }
-        >
-          {PAGE_SIZE_OPTIONS.map((n) => (
-            <option key={n} value={n}>
-              {n} rows
-            </option>
-          ))}
-        </select>
 
         {/* Export */}
         <div className="relative">
@@ -592,141 +671,156 @@ function DataTable({ tab }: Props) {
         </div>
       )}
 
-      {/* Table */}
-      <div
-        className="flex-1 overflow-auto"
-        onClick={() => setExportMenuOpen(false)}
-      >
-        <table className="w-full text-xs border-collapse">
-          <thead className="sticky top-0 z-10 bg-surface-overlay">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                <th className="w-12 px-2 py-1.5 text-right text-text-muted font-normal border-b border-surface-border select-none" />
-                {hg.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className={cn(
-                      "px-3 py-1.5 text-left border-b border-surface-border whitespace-nowrap",
-                      header.column.getCanSort() &&
-                        "cursor-pointer select-none hover:bg-surface-raised",
-                    )}
-                    style={{ width: header.getSize() }}
-                    onClick={header.column.getToggleSortingHandler()}
-                  >
-                    <div className="flex items-center gap-1">
-                      {flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
-                      {header.column.getIsSorted() === "asc" && (
-                        <span className="text-accent">↑</span>
-                      )}
-                      {header.column.getIsSorted() === "desc" && (
-                        <span className="text-accent">↓</span>
-                      )}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {visibleRows.map((row, idx) => {
-              const realIdx = row.index;
-              const isDeleted = pendingDeletes.has(realIdx);
-              return (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "border-b border-surface-border/50 group",
-                    isDeleted
-                      ? "bg-red-950/20 opacity-40"
-                      : "hover:bg-surface-raised",
-                  )}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setRowCtx({
-                      x: e.clientX,
-                      y: e.clientY,
-                      row: result.rows[realIdx],
-                      rowIdx: realIdx,
-                    });
-                  }}
-                >
-                  <td className="px-2 py-1 text-right text-text-muted font-mono select-none">
-                    <div className="flex items-center justify-end gap-1">
-                      {editMode ? (
-                        <button
-                          className={cn(
-                            "transition-colors",
-                            isDeleted
-                              ? "text-red-400"
-                              : "text-text-muted hover:text-red-400",
+      {/* MongoDB filter bar */}
+      {isMongo && <MongoFilterBar tab={tab} onQuery={handleFilterQuery} />}
+
+      {/* Tree view (MongoDB) */}
+      {viewMode === "tree" && isMongo ? (
+        <MongoDocTree result={result} />
+      ) : (
+        <>
+          {/* Table */}
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-auto"
+            onClick={() => setExportMenuOpen(false)}
+          >
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-0 z-10 bg-surface-overlay">
+                {table.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id}>
+                    <th className="w-12 px-2 py-1.5 text-right text-text-muted font-normal border-b border-surface-border select-none" />
+                    {hg.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className={cn(
+                          "px-3 py-1.5 text-left border-b border-surface-border whitespace-nowrap",
+                          header.column.getCanSort() &&
+                            "cursor-pointer select-none hover:bg-surface-raised",
+                        )}
+                        style={{ width: header.getSize() }}
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        <div className="flex items-center gap-1">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
                           )}
-                          title={
-                            isDeleted ? "Undo delete" : "Mark for deletion"
-                          }
-                          onClick={() => toggleDelete(realIdx)}
-                        >
-                          <Trash2 size={9} />
-                        </button>
-                      ) : (
-                        <button
-                          className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent transition-opacity"
-                          title="Copy row as JSON"
-                          onClick={() => copyRowJson(result.rows[realIdx])}
-                        >
-                          <Copy size={9} />
-                        </button>
+                          {header.column.getIsSorted() === "asc" && (
+                            <span className="text-accent">↑</span>
+                          )}
+                          {header.column.getIsSorted() === "desc" && (
+                            <span className="text-accent">↓</span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {paddingTop > 0 && (
+                  <tr>
+                    <td
+                      colSpan={headers.length + 1}
+                      style={{ height: paddingTop }}
+                    />
+                  </tr>
+                )}
+                {virtualItems.map((vr) => {
+                  const row = allRows[vr.index];
+                  if (!row) return null;
+                  const realIdx = row.index;
+                  const isDeleted = pendingDeletes.has(realIdx);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={cn(
+                        "border-b border-surface-border/50 group",
+                        isDeleted
+                          ? "bg-red-950/20 opacity-40"
+                          : "hover:bg-surface-raised",
                       )}
-                      <span className={isDeleted ? "line-through" : ""}>
-                        {pageIndex * pageSize + idx + 1}
-                      </span>
-                    </div>
-                  </td>
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-1 text-text-primary">
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setRowCtx({
+                          x: e.clientX,
+                          y: e.clientY,
+                          row: result.rows[realIdx],
+                          rowIdx: realIdx,
+                        });
+                      }}
+                    >
+                      <td className="px-2 py-1 text-right text-text-muted font-mono select-none">
+                        <div className="flex items-center justify-end gap-1">
+                          {editMode ? (
+                            <button
+                              className={cn(
+                                "transition-colors",
+                                isDeleted
+                                  ? "text-red-400"
+                                  : "text-text-muted hover:text-red-400",
+                              )}
+                              title={
+                                isDeleted ? "Undo delete" : "Mark for deletion"
+                              }
+                              onClick={() => toggleDelete(realIdx)}
+                            >
+                              <Trash2 size={9} />
+                            </button>
+                          ) : (
+                            <button
+                              className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent transition-opacity"
+                              title="Copy row as JSON"
+                              onClick={() => copyRowJson(result.rows[realIdx])}
+                            >
+                              <Copy size={9} />
+                            </button>
+                          )}
+                          <span className={isDeleted ? "line-through" : ""}>
+                            {vr.index + 1}
+                          </span>
+                        </div>
+                      </td>
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className="px-3 py-1 text-text-primary"
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+                {paddingBottom > 0 && (
+                  <tr>
+                    <td
+                      colSpan={headers.length + 1}
+                      style={{ height: paddingBottom }}
+                    />
+                  </tr>
+                )}
+              </tbody>
+            </table>
 
-        {result.rows.length === 0 && (
-          <div className="flex items-center justify-center h-20 text-sm text-text-muted">
-            Query returned no rows
+            {result.rows.length === 0 && (
+              <div className="flex items-center justify-center h-20 text-sm text-text-muted">
+                Query returned no rows
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Pagination */}
-      {pageCount > 1 && (
-        <div className="flex items-center gap-2 px-3 py-1 border-t border-surface-border bg-surface-raised flex-shrink-0 text-xs text-text-muted">
-          <button
-            className="p-0.5 hover:text-text-primary disabled:opacity-30"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeft size={13} />
-          </button>
-          <span>
-            Page {pageIndex + 1} of {pageCount}
-          </span>
-          <button
-            className="p-0.5 hover:text-text-primary disabled:opacity-30"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            <ChevronRight size={13} />
-          </button>
-          <span className="ml-auto">{totalFiltered.toLocaleString()} rows</span>
-        </div>
+          {/* Row count footer */}
+          {totalFiltered > 0 && (
+            <div className="flex items-center px-3 py-1 border-t border-surface-border bg-surface-raised flex-shrink-0 text-xs text-text-muted">
+              <span>{totalFiltered.toLocaleString()} rows</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* Context menu */}
@@ -764,6 +858,193 @@ function DataTable({ tab }: Props) {
   );
 }
 
+// ── MongoDB filter bar ─────────────────────────────────────────────────────────
+
+function MongoFilterBar({
+  tab,
+  onQuery,
+}: {
+  tab: QueryTab;
+  onQuery: (sql: string) => void;
+}) {
+  const parsedSql = useMemo(() => {
+    try { return JSON.parse(tab.sql) as Record<string, unknown>; }
+    catch { return null; }
+  }, [tab.sql]);
+
+  const collection = useMemo(() => extractCollectionName(tab.sql), [tab.sql]);
+
+  // tab.sql stores limit+1 (peek row); display limit is one less.
+  const [filter, setFilter] = useState(() => {
+    const f = parsedSql?.filter;
+    return f && typeof f === "object" ? JSON.stringify(f) : "{}";
+  });
+  const [sort, setSort] = useState(() => {
+    const s = parsedSql?.sort;
+    return s && typeof s === "object" ? JSON.stringify(s) : "{}";
+  });
+  const [limit, setLimit] = useState(() =>
+    typeof parsedSql?.limit === "number" ? Math.max(1, parsedSql.limit - 1) : 100,
+  );
+  const [page, setPage] = useState(() => {
+    const displayLim = typeof parsedSql?.limit === "number" ? Math.max(1, parsedSql.limit - 1) : 100;
+    const skip = typeof parsedSql?.skip === "number" ? parsedSql.skip : 0;
+    return displayLim > 0 ? Math.floor(skip / displayLim) + 1 : 1;
+  });
+
+  // Build the query JSON. We request l+1 rows to peek if a next page exists.
+  const buildQuery = useCallback((f: string, s: string, l: number, p: number): string => {
+    const coll = collection ?? extractCollectionName(tab.sql) ?? "";
+    const existing = (() => {
+      try { return JSON.parse(tab.sql) as Record<string, unknown>; }
+      catch { return {} as Record<string, unknown>; }
+    })();
+    const q: Record<string, unknown> = { find: coll };
+    if (existing.db) q.db = existing.db;
+    try {
+      const fObj = JSON.parse(f) as Record<string, unknown>;
+      if (Object.keys(fObj).length > 0) q.filter = fObj;
+    } catch { /* invalid JSON */ }
+    try {
+      const sObj = JSON.parse(s) as Record<string, unknown>;
+      if (Object.keys(sObj).length > 0) q.sort = sObj;
+    } catch { /* invalid JSON */ }
+    q.limit = l + 1; // fetch one extra to detect next page
+    if (p > 1) q.skip = (p - 1) * l;
+    return JSON.stringify(q);
+  }, [collection, tab.sql]);
+
+  // Derived from tab.sql: the stored limit is l+1, so display limit is l+1-1.
+  const appliedDisplayLimit =
+    typeof parsedSql?.limit === "number" ? parsedSql.limit - 1 : null;
+
+  const rowCount = tab.result?.rows.length ?? 0;
+  // More rows returned than the display limit → next page exists.
+  const hasNextPage =
+    appliedDisplayLimit !== null && rowCount > appliedDisplayLimit && !tab.running;
+  const hasPrevPage = page > 1 && !tab.running;
+
+  // Auto-navigate back if we land on an empty page (went past the last page).
+  useEffect(() => {
+    if (!tab.running && page > 1 && tab.result !== undefined && rowCount === 0) {
+      const prevPage = page - 1;
+      setPage(prevPage);
+      onQuery(buildQuery(filter, sort, limit, prevPage));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.result, tab.running]);
+
+  if (!collection) return null;
+
+  const applyPage = (newPage: number) => {
+    setPage(newPage);
+    onQuery(buildQuery(filter, sort, limit, newPage));
+  };
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 bg-surface border-b border-surface-border flex-shrink-0 text-xs flex-wrap">
+      <span className="text-text-muted">Filter:</span>
+      <input
+        value={filter}
+        onChange={(e) => {
+          setFilter(e.target.value);
+          setPage(1);
+        }}
+        className="bg-surface-overlay border border-surface-border rounded px-2 py-0.5 text-text-primary font-mono placeholder-text-muted outline-none focus:border-accent w-36"
+        placeholder="{}"
+        title="MongoDB filter (JSON)"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            setPage(1);
+            onQuery(buildQuery(filter, sort, limit, 1));
+          }
+        }}
+      />
+      <span className="text-text-muted">Sort:</span>
+      <input
+        value={sort}
+        onChange={(e) => {
+          setSort(e.target.value);
+          setPage(1);
+        }}
+        className="bg-surface-overlay border border-surface-border rounded px-2 py-0.5 text-text-primary font-mono placeholder-text-muted outline-none focus:border-accent w-28"
+        placeholder="{}"
+        title='Sort (JSON, e.g. {"createdAt": -1})'
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            setPage(1);
+            onQuery(buildQuery(filter, sort, limit, 1));
+          }
+        }}
+      />
+      <span className="text-text-muted">Limit:</span>
+      <input
+        type="number"
+        value={limit}
+        onChange={(e) => {
+          setLimit(Math.max(1, Math.min(10000, Number(e.target.value))));
+          setPage(1);
+        }}
+        className="bg-surface-overlay border border-surface-border rounded px-2 py-0.5 text-text-primary font-mono outline-none focus:border-accent w-16 [appearance:textfield]"
+        min={1}
+        max={10000}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            setPage(1);
+            onQuery(buildQuery(filter, sort, limit, 1));
+          }
+        }}
+      />
+      <button
+        className="px-2 py-0.5 bg-accent hover:bg-accent-hover text-white rounded transition-colors disabled:opacity-50"
+        onClick={() => {
+          setPage(1);
+          onQuery(buildQuery(filter, sort, limit, 1));
+        }}
+        disabled={tab.running}
+      >
+        Apply
+      </button>
+      <button
+        className="px-2 py-0.5 text-text-secondary hover:text-text-primary border border-surface-border rounded transition-colors disabled:opacity-50"
+        onClick={() => {
+          setFilter("{}");
+          setSort("{}");
+          setLimit(100);
+          setPage(1);
+          onQuery(buildQuery("{}", "{}", 100, 1));
+        }}
+        disabled={tab.running}
+      >
+        Reset
+      </button>
+
+      {/* Page navigation — shown whenever a limit-based query has been executed */}
+      {appliedDisplayLimit !== null && (
+        <div className="flex items-center gap-1 ml-auto">
+          <button
+            className="p-0.5 rounded text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            onClick={() => applyPage(page - 1)}
+            disabled={!hasPrevPage || tab.running}
+            title="Previous page"
+          >
+            <ChevronLeft size={13} />
+          </button>
+          <span className="text-text-muted px-1">Page {page}</span>
+          <button
+            className="p-0.5 rounded text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            onClick={() => applyPage(page + 1)}
+            disabled={!hasNextPage || tab.running}
+            title="Next page"
+          >
+            <ChevronRight size={13} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Cell expand modal ─────────────────────────────────────────────────────────
 
 function parseHexBytes(value: string): Uint8Array | null {
@@ -778,11 +1059,26 @@ function parseHexBytes(value: string): Uint8Array | null {
   return bytes;
 }
 
-function isImageBytes(bytes: Uint8Array): "png" | "jpeg" | "gif" | "webp" | null {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "png";
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
+function isImageBytes(
+  bytes: Uint8Array,
+): "png" | "jpeg" | "gif" | "webp" | null {
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  )
+    return "png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
+    return "jpeg";
   if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "gif";
-  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[4] === 0x57) return "webp";
+  if (
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[4] === 0x57
+  )
+    return "webp";
   return null;
 }
 
@@ -804,8 +1100,13 @@ function HexDump({ bytes }: { bytes: Uint8Array }) {
         <span>ASCII</span>
       </div>
       {rows.map((row) => (
-        <div key={row.offset} className="flex gap-4 hover:bg-surface-overlay rounded px-0.5">
-          <span className="w-12 text-text-muted">{row.offset.toString(16).padStart(4, "0")}</span>
+        <div
+          key={row.offset}
+          className="flex gap-4 hover:bg-surface-overlay rounded px-0.5"
+        >
+          <span className="w-12 text-text-muted">
+            {row.offset.toString(16).padStart(4, "0")}
+          </span>
           <span className="flex-1">
             {row.hex.slice(0, 8).join(" ")}
             {row.hex.length > 8 && <span className="mx-1.5" />}
@@ -815,7 +1116,9 @@ function HexDump({ bytes }: { bytes: Uint8Array }) {
         </div>
       ))}
       {bytes.length > 512 && (
-        <div className="text-text-muted mt-1">… {bytes.length - 512} more bytes</div>
+        <div className="text-text-muted mt-1">
+          … {bytes.length - 512} more bytes
+        </div>
       )}
     </div>
   );
@@ -832,12 +1135,15 @@ function CellExpandModal({
 }) {
   const bytes = parseHexBytes(value);
   const imageType = bytes ? isImageBytes(bytes) : null;
-  const imageUrl = imageType && bytes
-    ? URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: `image/${imageType}` }))
-    : null;
+  const imageUrl =
+    imageType && bytes
+      ? URL.createObjectURL(
+          new Blob([new Uint8Array(bytes)], { type: `image/${imageType}` }),
+        )
+      : null;
 
   const displayText = (() => {
-    if (bytes) return value; // raw hex string
+    if (bytes) return value;
     try {
       return JSON.stringify(JSON.parse(value), null, 2);
     } catch {
@@ -856,7 +1162,9 @@ function CellExpandModal({
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-text-primary">{header}</span>
+            <span className="text-xs font-semibold text-text-primary">
+              {header}
+            </span>
             {bytes && (
               <span className="text-2xs text-text-muted bg-surface-overlay rounded px-1.5 py-0.5">
                 {bytes.length} bytes

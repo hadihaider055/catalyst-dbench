@@ -4,9 +4,14 @@ import { useRef, useCallback, useEffect, useState } from "react";
 import MonacoEditor, { useMonaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 
+// SQL formatter
+import { format as formatSql } from "sql-formatter";
+import type { SqlLanguage } from "sql-formatter";
+
 // Lucide icons
 import {
   Play,
+  Square,
   Zap,
   AlignLeft,
   Clock,
@@ -20,15 +25,29 @@ import {
 
 // Utils
 import { useAppStore } from "@/stores/useAppStore";
-import { executeQuery } from "@/lib/commands";
+import { executeQuery, cancelQuery } from "@/lib/commands";
 import { formatDuration } from "@/lib/utils";
-import type { QueryTab } from "@/lib/types";
+import type { QueryTab, DatabaseType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 
 // SQL snippets
 import { SQL_DB_TYPES, getSnippets, SQL_KEYWORDS } from "./snippets";
+
+function sqlFormatterLanguage(dbType: DatabaseType): SqlLanguage {
+  switch (dbType) {
+    case "postgres":
+    case "cockroachdb":
+      return "postgresql";
+    case "mysql":
+      return "mysql";
+    case "sqlite":
+      return "sqlite";
+    default:
+      return "sql";
+  }
+}
 
 interface Props {
   tab: QueryTab;
@@ -150,8 +169,27 @@ export default function QueryEditor({ tab }: Props) {
   );
 
   const format = useCallback(() => {
-    editorRef.current?.getAction("editor.action.formatDocument")?.run();
-  }, []);
+    const ed = editorRef.current;
+    if (!ed) return;
+    if (language === "sql") {
+      const sql = ed.getValue();
+      try {
+        const formatted = formatSql(sql, {
+          language: sqlFormatterLanguage(tab.db_type),
+          keywordCase: "upper",
+          indentStyle: "standard",
+          tabWidth: 2,
+        });
+        const position = ed.getPosition();
+        ed.setValue(formatted);
+        if (position) ed.setPosition(position);
+      } catch {
+        ed.getAction("editor.action.formatDocument")?.run();
+      }
+    } else {
+      ed.getAction("editor.action.formatDocument")?.run();
+    }
+  }, [language, tab.db_type]);
 
   const openFile = useCallback(async () => {
     try {
@@ -390,21 +428,33 @@ export default function QueryEditor({ tab }: Props) {
           </span>
         )}
 
-        <button
-          className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
-          onClick={() => run(false)}
-          disabled={tab.running || !isConnected}
-          title={isConnected ? "Run query (Ctrl+Enter)" : "Not connected"}
-        >
-          <Play size={11} />
-          {tab.running ? "Running…" : "Run"}
-        </button>
+        {tab.running ? (
+          <button
+            className="flex items-center gap-1.5 px-3 py-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs font-medium transition-colors"
+            onClick={() => void cancelQuery(tab.connection_id)}
+            title="Cancel query"
+          >
+            <Square size={11} />
+            Cancel
+          </button>
+        ) : (
+          <button
+            className="flex items-center gap-1.5 px-3 py-1 bg-accent hover:bg-accent-hover text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
+            onClick={() => run(false)}
+            disabled={!isConnected}
+            title={isConnected ? "Run query (Ctrl+Enter)" : "Not connected"}
+          >
+            <Play size={11} />
+            Run
+          </button>
+        )}
 
         <button
           className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-overlay hover:bg-surface-border text-text-secondary rounded text-xs transition-colors disabled:opacity-50"
           onClick={() => run(true)}
           disabled={tab.running || !isConnected}
           title="Explain query (Ctrl+Shift+Enter)"
+          hidden={tab.running}
         >
           <Zap size={11} />
           Explain

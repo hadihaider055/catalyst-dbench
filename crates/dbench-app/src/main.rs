@@ -41,6 +41,7 @@ fn main() {
                 executor,
                 audit,
                 ssh_tunnels: Arc::new(DashMap::new()),
+                cancel_tokens: Arc::new(DashMap::new()),
             });
 
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "Catalyst DBench started");
@@ -57,6 +58,7 @@ fn main() {
             commands::connections::get_credential,
             commands::connections::list_databases,
             commands::query::execute_query,
+            commands::query::cancel_query,
             commands::query::execute_batch,
             commands::schema::get_schema,
             commands::schema::get_object_ddl,
