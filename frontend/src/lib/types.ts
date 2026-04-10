@@ -139,6 +139,12 @@ export interface SavedConnection {
   ssh_key_path?: string;
 }
 
+export interface BatchStatementResult {
+  sql: string;
+  result?: QueryResult;
+  error?: string;
+}
+
 export interface QueryTab {
   id: string;
   connection_id: string;
@@ -149,6 +155,8 @@ export interface QueryTab {
   result?: QueryResult;
   error?: string;
   running: boolean;
+  running_label?: string;
+  batch_results?: BatchStatementResult[];
   kind?: "query" | "er_diagram" | "ddl";
   er_connection_id?: string;
   ddl_content?: string;

@@ -43,7 +43,7 @@ import { useAppStore } from "@/stores/useAppStore";
 
 // Types
 import { displayValue } from "@/lib/types";
-import type { QueryTab, Row } from "@/lib/types";
+import type { QueryTab, Row, BatchStatementResult } from "@/lib/types";
 import {
   SQL_DB_TYPES,
   escapeCsvCell,
@@ -63,8 +63,13 @@ interface Props {
 // ── Entry point ────────────────────────────────────────────────────────────────
 
 export default function ResultsGrid({ tab }: Props) {
-  if (tab.running) return <LoadingPanel />;
+  if (tab.running) return <LoadingPanel label={tab.running_label} />;
   if (tab.error) return <ErrorPanel message={tab.error} />;
+
+  if (tab.batch_results) {
+    return <BatchResultsView tab={tab} results={tab.batch_results} />;
+  }
+
   if (!tab.result) return <EmptyPanel />;
 
   if (tab.result.explain_plan) {
@@ -76,6 +81,113 @@ export default function ResultsGrid({ tab }: Props) {
   }
 
   return <DataTable tab={tab} />;
+}
+
+// ── Batch results view ─────────────────────────────────────────────────────────
+
+function BatchResultsView({
+  tab,
+  results,
+}: {
+  tab: QueryTab;
+  results: BatchStatementResult[];
+}) {
+  const [activeIdx, setActiveIdx] = useState<"summary" | number>("summary");
+  const { updateTab } = useAppStore();
+
+  const stmtLabel = (r: BatchStatementResult, i: number) => {
+    const keyword = r.sql.trimStart().split(/\s+/)[0].toUpperCase();
+    return `${i + 1}. ${keyword}`;
+  };
+
+  const activeResult =
+    activeIdx !== "summary" ? results[activeIdx] : null;
+
+  const stmtTab = activeResult
+    ? { ...tab, result: activeResult.result, sql: activeResult.sql, batch_results: undefined }
+    : null;
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Tab bar */}
+      <div className="flex-shrink-0 flex items-center gap-0.5 px-2 pt-1 bg-surface border-b border-border overflow-x-auto min-w-0">
+        <button
+          className={cn(
+            "px-3 py-1 text-xs rounded-t border-b-2 transition-colors whitespace-nowrap",
+            activeIdx === "summary"
+              ? "border-accent text-text-primary font-medium"
+              : "border-transparent text-text-muted hover:text-text-secondary",
+          )}
+          onClick={() => setActiveIdx("summary")}
+        >
+          Summary
+        </button>
+        {results.map((r, i) => (
+          <button
+            key={i}
+            className={cn(
+              "px-3 py-1 text-xs rounded-t border-b-2 transition-colors whitespace-nowrap font-mono",
+              activeIdx === i
+                ? "border-accent text-text-primary font-medium"
+                : r.error
+                ? "border-transparent text-red-400 hover:text-red-300"
+                : "border-transparent text-text-muted hover:text-text-secondary",
+            )}
+            onClick={() => setActiveIdx(i)}
+          >
+            {stmtLabel(r, i)}
+            {r.error && <span className="ml-1 text-red-400">✗</span>}
+          </button>
+        ))}
+        <div className="ml-auto pl-2 flex-shrink-0">
+          <button
+            className="p-1 text-text-muted hover:text-text-secondary transition-colors"
+            title="Dismiss batch results"
+            onClick={() =>
+              updateTab(tab.id, {
+                batch_results: undefined,
+                result: undefined,
+              })
+            }
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {activeIdx === "summary" && (
+          <BatchSummary results={results} onSelect={setActiveIdx} />
+        )}
+        {activeIdx !== "summary" && activeResult && (
+          <>
+            {activeResult.error && (
+              <ErrorPanel message={activeResult.error} />
+            )}
+            {!activeResult.error && stmtTab?.result && !stmtTab.result.explain_plan && (
+              <DataTable tab={stmtTab} />
+            )}
+            {!activeResult.error && stmtTab?.result?.explain_plan && (
+              <div className="h-full bg-surface">
+                <ExplainPlan plan={stmtTab.result.explain_plan} />
+              </div>
+            )}
+            {!activeResult.error && !stmtTab?.result && (
+              <div className="h-full flex items-center justify-center text-text-muted text-sm">
+                {results[activeIdx as number].sql
+                  .trimStart()
+                  .split(/\s+/)[0]
+                  .toUpperCase()}{" "}
+                executed —{" "}
+                {results[activeIdx as number].result?.rows_affected ?? 0} rows affected
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── DataTable ──────────────────────────────────────────────────────────────────
@@ -1211,13 +1323,97 @@ function CellExpandModal({
   );
 }
 
+// ── Batch summary ──────────────────────────────────────────────────────────────
+
+function BatchSummary({
+  results,
+  onSelect,
+}: {
+  results: BatchStatementResult[];
+  onSelect?: (idx: number) => void;
+}) {
+  const [selected, setSelected] = useState<number | null>(null);
+  const { theme } = useAppStore();
+  const errorBg = theme === "dark" ? "#3b1a1a" : "#fff0f0";
+  const errorBorder = theme === "dark" ? "#7f1d1d" : "#fca5a5";
+
+  return (
+    <div className="flex-shrink-0 border-b border-border overflow-auto" style={{ maxHeight: 180 }}>
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="bg-surface-raised text-text-muted sticky top-0">
+            <th className="px-3 py-1.5 text-left font-medium w-8">#</th>
+            <th className="px-3 py-1.5 text-left font-medium">Statement</th>
+            <th className="px-3 py-1.5 text-right font-medium w-32">Result</th>
+            <th className="px-3 py-1.5 text-right font-medium w-20">Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.map((r, i) => {
+            const isError = !!r.error;
+            const rowsAffected = r.result?.rows_affected;
+            const rowCount = r.result?.rows.length ?? 0;
+            const durationMs = r.result?.duration_ms;
+            const resultLabel = isError
+              ? r.error
+              : rowsAffected !== undefined && rowsAffected !== null
+              ? `${rowsAffected} row${rowsAffected === 1 ? "" : "s"} affected`
+              : `${rowCount} row${rowCount === 1 ? "" : "s"}`;
+
+            return (
+              <tr
+                key={i}
+                className="border-t border-border cursor-pointer"
+                style={
+                  isError
+                    ? { backgroundColor: errorBg }
+                    : selected === i
+                    ? { backgroundColor: "var(--color-accent-subtle)" }
+                    : undefined
+                }
+                onClick={() => {
+                  setSelected(selected === i ? null : i);
+                  onSelect?.(i);
+                }}
+              >
+                <td className="px-3 py-1.5 text-text-muted font-mono">{i + 1}</td>
+                <td className="px-3 py-1.5 font-mono text-text-primary truncate max-w-0 w-full">
+                  {r.sql.replace(/\s+/g, " ").slice(0, 120)}
+                </td>
+                <td
+                  className="px-3 py-1.5 text-right font-mono truncate"
+                  style={{ color: isError ? (theme === "dark" ? "#f87171" : "#dc2626") : "var(--color-text-secondary)" }}
+                >
+                  {isError ? "✗ " : "✓ "}
+                  {isError ? "failed" : resultLabel}
+                </td>
+                <td className="px-3 py-1.5 text-right text-text-muted">
+                  {durationMs !== undefined ? `${durationMs}ms` : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {selected !== null && results[selected]?.error && (
+        <div
+          className="px-3 py-2 font-mono text-xs whitespace-pre-wrap border-t"
+          style={{ borderColor: errorBorder, color: theme === "dark" ? "#f87171" : "#dc2626", backgroundColor: errorBg }}
+        >
+          {results[selected].error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── State panels ───────────────────────────────────────────────────────────────
 
-function LoadingPanel() {
+function LoadingPanel({ label }: { label?: string }) {
   return (
     <div className="h-full flex items-center justify-center gap-2 text-text-muted text-sm">
       <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      Executing query…
+      {label ?? "Executing query…"}
     </div>
   );
 }

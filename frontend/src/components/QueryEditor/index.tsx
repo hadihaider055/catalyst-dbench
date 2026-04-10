@@ -27,7 +27,7 @@ import {
 import { useAppStore } from "@/stores/useAppStore";
 import { executeQuery, cancelQuery } from "@/lib/commands";
 import { formatDuration } from "@/lib/utils";
-import type { QueryTab, DatabaseType } from "@/lib/types";
+import type { QueryTab, DatabaseType, BatchStatementResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
@@ -106,34 +106,103 @@ export default function QueryEditor({ tab }: Props) {
       });
 
       const startTs = Date.now();
-      try {
-        const result = await executeQuery({
-          connection_id: tab.connection_id,
-          sql: sql.trim(),
-          explain,
+      const trimmed = sql.trim();
+
+      const statements = trimmed
+        .split(";")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+
+      if (!explain && statements.length > 1) {
+        // Run each statement individually so we can show per-statement progress and
+        // surface errors for each statement rather than failing the whole batch.
+        const batchResults: BatchStatementResult[] = [];
+        for (let i = 0; i < statements.length; i++) {
+          updateTab(tab.id, {
+            running_label: `Running statement ${i + 1} of ${statements.length}…`,
+          });
+          try {
+            const r = await executeQuery({
+              connection_id: tab.connection_id,
+              sql: statements[i],
+            });
+            batchResults.push({ sql: statements[i], result: r });
+          } catch (err) {
+            batchResults.push({ sql: statements[i], error: String(err) });
+          }
+        }
+
+        const displayResult =
+          [...batchResults]
+            .reverse()
+            .find((r) => r.result && r.result.rows.length > 0)?.result ??
+          [...batchResults].reverse().find((r) => r.result)?.result;
+
+        const totalMs = Date.now() - startTs;
+        updateTab(tab.id, {
+          result: displayResult,
+          batch_results: batchResults,
+          running: false,
+          running_label: undefined,
+          error: undefined,
         });
-        updateTab(tab.id, { result, running: false });
         addToHistory({
           id: crypto.randomUUID(),
-          sql: sql.trim(),
+          sql: trimmed,
           conn_id: tab.connection_id,
           conn_name: tab.connection_name,
-          duration_ms: result.duration_ms,
-          row_count: result.rows.length,
+          duration_ms: totalMs,
+          row_count: displayResult?.rows.length ?? 0,
           ts: startTs,
+          error: batchResults.some((r) => r.error)
+            ? batchResults
+                .filter((r) => r.error)
+                .map(
+                  (r) => `Statement ${batchResults.indexOf(r) + 1}: ${r.error}`,
+                )
+                .join("; ")
+            : undefined,
         });
-      } catch (err) {
-        updateTab(tab.id, { error: String(err), running: false });
-        addToHistory({
-          id: crypto.randomUUID(),
-          sql: sql.trim(),
-          conn_id: tab.connection_id,
-          conn_name: tab.connection_name,
-          duration_ms: Date.now() - startTs,
-          row_count: 0,
-          ts: startTs,
-          error: String(err),
-        });
+      } else {
+        try {
+          const result = await executeQuery({
+            connection_id: tab.connection_id,
+            sql: trimmed,
+            explain,
+          });
+          updateTab(tab.id, {
+            result,
+            batch_results: undefined,
+            running: false,
+            running_label: undefined,
+          });
+          addToHistory({
+            id: crypto.randomUUID(),
+            sql: trimmed,
+            conn_id: tab.connection_id,
+            conn_name: tab.connection_name,
+            duration_ms: result.duration_ms,
+            row_count: result.rows.length,
+            ts: startTs,
+          });
+        } catch (err) {
+          updateTab(tab.id, {
+            error: String(err),
+            batch_results: undefined,
+            running: false,
+            running_label: undefined,
+          });
+          addToHistory({
+            id: crypto.randomUUID(),
+            sql: trimmed,
+            conn_id: tab.connection_id,
+            conn_name: tab.connection_name,
+            duration_ms: Date.now() - startTs,
+            row_count: 0,
+            ts: startTs,
+            error: String(err),
+          });
+        }
       }
     },
     [
@@ -193,13 +262,18 @@ export default function QueryEditor({ tab }: Props) {
 
   const openFile = useCallback(async () => {
     try {
-      const filters = tab.db_type === "mongodb"
-        ? [{ name: "JSON / Text", extensions: ["json", "txt"] }]
-        : [{ name: "SQL / Text", extensions: ["sql", "txt", "cql"] }];
+      const filters =
+        tab.db_type === "mongodb"
+          ? [{ name: "JSON / Text", extensions: ["json", "txt"] }]
+          : [{ name: "SQL / Text", extensions: ["sql", "txt", "cql"] }];
       const path = await open({ multiple: false, filters });
       if (!path || typeof path !== "string") return;
       const content = await readTextFile(path);
-      const fileName = path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? tab.title;
+      const fileName =
+        path
+          .split("/")
+          .pop()
+          ?.replace(/\.[^.]+$/, "") ?? tab.title;
       updateTab(tab.id, { sql: content, title: fileName });
       editorRef.current?.setValue(content);
       addToast(`Opened ${path.split("/").pop() ?? path}`, "info");
@@ -214,7 +288,12 @@ export default function QueryEditor({ tab }: Props) {
       const ext = tab.db_type === "mongodb" ? "json" : "sql";
       const path = await save({
         defaultPath: `${tab.title}.${ext}`,
-        filters: [{ name: ext === "json" ? "JSON Files" : "SQL Files", extensions: [ext] }],
+        filters: [
+          {
+            name: ext === "json" ? "JSON Files" : "SQL Files",
+            extensions: [ext],
+          },
+        ],
       });
       if (!path) return;
       await writeTextFile(path, content);
@@ -477,7 +556,11 @@ export default function QueryEditor({ tab }: Props) {
               onChange={(e) => setSavePrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && savePrompt.trim()) {
-                  saveQuery(savePrompt.trim(), editorRef.current?.getValue() ?? tab.sql, tab.db_type);
+                  saveQuery(
+                    savePrompt.trim(),
+                    editorRef.current?.getValue() ?? tab.sql,
+                    tab.db_type,
+                  );
                   addToast(`Query "${savePrompt.trim()}" saved`);
                   setSavePrompt(null);
                 } else if (e.key === "Escape") {
@@ -491,7 +574,11 @@ export default function QueryEditor({ tab }: Props) {
               className="text-2xs px-2 py-0.5 bg-accent text-white rounded"
               onClick={() => {
                 if (savePrompt.trim()) {
-                  saveQuery(savePrompt.trim(), editorRef.current?.getValue() ?? tab.sql, tab.db_type);
+                  saveQuery(
+                    savePrompt.trim(),
+                    editorRef.current?.getValue() ?? tab.sql,
+                    tab.db_type,
+                  );
                   addToast(`Query "${savePrompt.trim()}" saved`);
                   setSavePrompt(null);
                 }
