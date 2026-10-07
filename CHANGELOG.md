@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.4.0...v1.5.0) (2026-10-07)
+
+### Features
+
+* db drivers upgraded and semantic release for apple ([30c7a9f](https://github.com/hadihaider055/catalyst-dbench/commit/30c7a9f5c3761dd657ad25d584dd2ddb90fa24e9))
+
 ## [1.4.0](https://github.com/Catalyst-DBench/catalyst-dbench/compare/v1.3.0...v1.4.0) (2026-04-10)
 
 ### Features
