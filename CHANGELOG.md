@@ -1,3 +1,9 @@
+## [1.5.3](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.2...v1.5.3) (2026-10-07)
+
+### Bug Fixes
+
+* **security:** keep uri passwords in keychain, not in saved connections ([07435f6](https://github.com/hadihaider055/catalyst-dbench/commit/07435f6f5e063e6c6e79ec6df693914a8096c43e))
+
 ## [1.5.2](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.1...v1.5.2) (2026-10-07)
 
 ### Bug Fixes
