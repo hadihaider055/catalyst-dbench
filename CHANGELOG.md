@@ -1,3 +1,9 @@
+## [1.5.2](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.1...v1.5.2) (2026-10-07)
+
+### Bug Fixes
+
+* **ci:** fix cargo-deny-action v2 inputs ([b3f9a1a](https://github.com/hadihaider055/catalyst-dbench/commit/b3f9a1a72fda9a61ebfd383c55be94c3d9752d1f))
+
 ## [1.5.1](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.0...v1.5.1) (2026-10-07)
 
 ### Bug Fixes
