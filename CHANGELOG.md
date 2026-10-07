@@ -1,3 +1,9 @@
+## [1.5.1](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.0...v1.5.1) (2026-10-07)
+
+### Bug Fixes
+
+* release builds, CI security checks and connection dialog ([6beef60](https://github.com/hadihaider055/catalyst-dbench/commit/6beef609840776f560716aa65fddba1eb808ac02))
+
 ## [1.5.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.4.0...v1.5.0) (2026-10-07)
 
 ### Features
