@@ -9,6 +9,7 @@ import type {
   QueryPayload,
   QueryResult,
 } from "./types";
+import { withUriPassword } from "./utils";
 
 /** Tauri's IPC bridge only exists inside the desktop window, not a browser tab. */
 function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -31,11 +32,12 @@ export const listConnections = (): Promise<ConnectionInfo[]> =>
 export const addConnection = (
   payload: ConnectionPayload
 ): Promise<{ connection_id: string; info: ConnectionInfo }> =>
-  invoke("add_connection", { payload });
+  invoke("add_connection", { payload: { ...payload, host: withUriPassword(payload.host, payload.password) } });
 
 export const testConnection = (
   payload: ConnectionPayload
-): Promise<string> => invoke("test_connection", { payload });
+): Promise<string> =>
+  invoke("test_connection", { payload: { ...payload, host: withUriPassword(payload.host, payload.password) } });
 
 export const openConnection = (
   payload: ConnectionPayload

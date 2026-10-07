@@ -39,7 +39,6 @@ rustls = { version = "0.23", features = ["ring"] }
 webpki-roots = "0.26"            # Mozilla root certificates
 
 # SSH tunneling
-ssh2 = "0.9"                     # libssh2 bindings
 
 # Logging (with sensitive field filtering)
 tracing = "0.1"

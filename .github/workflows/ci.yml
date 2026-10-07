@@ -66,6 +66,11 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+        env:
+          # tauri-build drops a placeholder msvcrt.lib on the link path for static CRT
+          # linking; doctests of other crates then pick it up and fail to link on Windows.
+          # Release builds keep the static CRT; only test builds opt out.
+          TAURI_CONFIG: ${{ runner.os == 'Windows' && '{"build":{"windows":{"staticVCRuntime":false}}}' || '{}' }}
 
   security-audit:
     name: Security Audit

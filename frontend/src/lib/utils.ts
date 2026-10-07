@@ -48,3 +48,26 @@ export function formatRowCount(n: number): string {
 export function generateId(): string {
   return crypto.randomUUID();
 }
+
+// `scheme://user:password@…` — userinfo of a connection URI.
+const URI_WITH_PASSWORD = /^([a-z][a-z0-9+.-]*:\/\/)([^:@/?#]*):([^@/?#]*)@/i;
+const URI_WITH_USER = /^([a-z][a-z0-9+.-]*:\/\/)([^:@/?#]*)@/i; // user may be empty (redis://:pw@…)
+
+/** Split a connection URI into a password-free URI (safe to persist) and the password. */
+export function splitUriPassword(uri: string): { uri: string; password?: string } {
+  const m = URI_WITH_PASSWORD.exec(uri);
+  if (!m) return { uri };
+  let password = m[3];
+  try {
+    password = decodeURIComponent(password);
+  } catch {
+    /* not percent-encoded — keep as-is */
+  }
+  return { uri: uri.replace(URI_WITH_PASSWORD, "$1$2@"), password: password || undefined };
+}
+
+/** Put a password back into `scheme://user@…` — in memory only, right before connecting. */
+export function withUriPassword(uri: string, password?: string): string {
+  if (!password || URI_WITH_PASSWORD.test(uri)) return uri;
+  return uri.replace(URI_WITH_USER, (_, scheme: string, user: string) => `${scheme}${user}:${encodeURIComponent(password)}@`);
+}

@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
+import { load, type Store } from "@tauri-apps/plugin-store";
 import type { ConnectionInfo, DatabaseSchema, HistoryEntry, QueryTab, SavedConnection, SavedQuery } from "@/lib/types";
 import { addConnection, getSchema, getCredential, storeCredential } from "@/lib/commands";
-import { generateId } from "@/lib/utils";
+import { generateId, splitUriPassword } from "@/lib/utils";
 
 export interface Toast {
   id: string;
@@ -41,6 +42,8 @@ interface AppState {
   removeActiveConnection: (id: string) => void;
   setSavedConnections: (conns: SavedConnection[]) => void;
   upsertSavedConnection: (conn: SavedConnection) => void;
+  /** Move passwords embedded in saved connection URIs into the OS keychain. */
+  secureSavedConnections: () => Promise<void>;
   removeSavedConnection: (id: string) => void;
 
   /** Add an entry to query history (newest first, capped at 500). */
@@ -78,6 +81,42 @@ interface AppState {
   toggleTheme: () => void;
   setZoom: (z: number) => void;
 }
+
+// Persisted state lives in a file in the app data dir, shared by `cargo tauri dev`
+// (origin localhost:5173) and the built app (tauri://localhost). localStorage is
+// per-origin, so connections saved in one never showed up in the other.
+let fileStore: Promise<Store> | null = null;
+const getFileStore = () => (fileStore ??= load("app-state.json"));
+// Until the first read finishes, a write would persist the *default* state (e.g. from
+// setActiveConnections at startup) over the saved file — so drop writes until loaded.
+let loaded = false;
+
+const appStateStorage: StateStorage =
+  "__TAURI_INTERNALS__" in window
+    ? {
+        getItem: async (key) => {
+          try {
+            const value = await (await getFileStore()).get<string>(key);
+            // One-time migration: fall back to this origin's old localStorage copy.
+            return value ?? localStorage.getItem(key);
+          } finally {
+            loaded = true;
+          }
+        },
+        setItem: async (key, value) => {
+          if (!loaded) return;
+          const store = await getFileStore();
+          await store.set(key, value);
+          await store.save();
+          localStorage.removeItem(key); // old per-origin copy is now obsolete
+        },
+        removeItem: async (key) => {
+          const store = await getFileStore();
+          await store.delete(key);
+          await store.save();
+        },
+      }
+    : localStorage;
 
 export const useAppStore = create<AppState>()(persist((set, get) => ({
   toasts: [],
@@ -117,12 +156,34 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     })),
 
   setSavedConnections: (conns) => set({ savedConnections: conns }),
-  upsertSavedConnection: (conn) =>
+  upsertSavedConnection: (conn) => {
+    // Never persist a password inside a URI (mongodb://user:pass@…): keychain only.
+    const { uri, password } = splitUriPassword(conn.host);
+    if (password) {
+      conn = { ...conn, host: uri };
+      storeCredential(conn.id, password).catch(() => {/* user re-enters it on reconnect */});
+    }
     set((s) => ({
       savedConnections: s.savedConnections.some((c) => c.id === conn.id)
         ? s.savedConnections.map((c) => (c.id === conn.id ? conn : c))
         : [...s.savedConnections, conn],
-    })),
+    }));
+  },
+  secureSavedConnections: async () => {
+    for (const c of get().savedConnections) {
+      const { uri, password } = splitUriPassword(c.host);
+      if (!password) continue;
+      // Strip from the file only once the keychain has it, so it can't be lost.
+      try {
+        await storeCredential(c.id, password);
+      } catch {
+        continue;
+      }
+      set((s) => ({
+        savedConnections: s.savedConnections.map((x) => (x.id === c.id ? { ...x, host: uri } : x)),
+      }));
+    }
+  },
   removeSavedConnection: (id) =>
     set((s) => ({ savedConnections: s.savedConnections.filter((c) => c.id !== id) })),
 
@@ -160,8 +221,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       ssh_key_path: conn.ssh_key_path,
     });
     const info = result.info;
-    // Update saved connection to use backend UUID so isActive() and loadSchema() work correctly
+    // Update saved connection to use backend UUID so isActive() and loadSchema() work correctly.
+    // The keychain entry is keyed by id, so carry the password over to the new one.
     if (conn.id !== info.id) {
+      if (password) await storeCredential(info.id, password).catch(() => {/* ignore */});
       get().removeSavedConnection(conn.id);
       get().upsertSavedConnection({ ...conn, id: info.id });
     }
@@ -334,6 +397,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   setZoom: (z) => set({ zoom: Math.max(0.5, Math.min(2, Math.round(z * 10) / 10)) }),
 }), {
   name: "catalyst-dbench",
+  storage: createJSONStorage(() => appStateStorage),
   // Only persist config/history — not runtime state
   partialize: (s) => ({
     savedConnections: s.savedConnections,
