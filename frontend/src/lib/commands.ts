@@ -1,7 +1,7 @@
 // Typed wrappers around every Tauri IPC command.
 // All database I/O goes through here — never call invoke() directly in components.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   ConnectionInfo,
   ConnectionPayload,
@@ -9,6 +9,19 @@ import type {
   QueryPayload,
   QueryResult,
 } from "./types";
+
+/** Tauri's IPC bridge only exists inside the desktop window, not a browser tab. */
+function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!("__TAURI_INTERNALS__" in window)) {
+    return Promise.reject(
+      new Error(
+        "Not running inside the desktop app. Start it with `cargo tauri dev` (in crates/dbench-app) " +
+          "and use that window — localhost:5173 in a browser can't reach the database backend.",
+      ),
+    );
+  }
+  return tauriInvoke<T>(cmd, args);
+}
 
 // ── Connections ──────────────────────────────────────────────────────────────
 

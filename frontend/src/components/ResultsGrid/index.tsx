@@ -788,7 +788,7 @@ function DataTable({ tab }: Props) {
           {/* Table */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-auto"
+            className="flex-1 min-h-0 overflow-auto"
             onClick={() => setExportMenuOpen(false)}
           >
             <table className="w-full text-xs border-collapse">
@@ -1263,7 +1263,7 @@ function CellExpandModal({
       onClick={onClose}
     >
       <div
-        className="bg-surface-raised border border-surface-border rounded-lg w-[600px] max-h-[80vh] flex flex-col shadow-2xl"
+        className="bg-surface-raised border border-surface-border rounded-lg w-[600px] max-h-[80%] flex flex-col shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
@@ -1293,7 +1293,7 @@ function CellExpandModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 min-h-0 overflow-auto p-4">
           {imageUrl ? (
             <div className="space-y-3">
               <img

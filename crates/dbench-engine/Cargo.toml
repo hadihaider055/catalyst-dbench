@@ -1,5 +1,6 @@
 [package]
 name = "dbench-engine"
+publish = false
 description = "Query execution engine, connection pooling, and driver registry for Catalyst DBench"
 version.workspace = true
 edition.workspace = true

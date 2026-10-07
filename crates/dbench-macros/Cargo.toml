@@ -1,5 +1,6 @@
 [package]
 name = "dbench-macros"
+publish = false
 description = "Procedural macros for DBench — reduces driver boilerplate"
 version.workspace = true
 edition.workspace = true

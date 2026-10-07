@@ -100,7 +100,7 @@ Get the installer for your OS from the [latest release](https://github.com/hadih
 
 > Releases up to v1.4.0 were published without installers. If the latest release has no files attached, [build from source](#build-from-source).
 
-The app isn't signed with a paid Apple or Microsoft certificate yet, so your OS will ask you to confirm it the first time you open it.
+The app isn't signed with Apple or Microsoft certificate yet, so your OS will ask you to confirm it the first time you open it.
 
 **macOS:** the first launch says _"cannot be opened because the developer cannot be verified"_. Right-click the app → **Open** → **Open**, or go to **System Settings → Privacy & Security → Open Anyway**. You only need to do this once. If you get _"is damaged and can't be opened"_ instead, clear the download flag:
 
@@ -158,8 +158,8 @@ cd crates/dbench-app && cargo tauri dev
 
 ```bash
 cd frontend && npm install && cd ..
-cargo tauri build --project-dir crates/dbench-app
-# Output: target/release/bundle/
+cd crates/dbench-app && cargo tauri build
+# Output: target/release/bundle/ (at the repo root)
 ```
 
 ### Try it with local databases

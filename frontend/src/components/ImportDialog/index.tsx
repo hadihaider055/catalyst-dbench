@@ -148,7 +148,7 @@ export default function ImportDialog({ connectionId, onClose, onSuccess }: Props
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface-raised border border-surface-border rounded-lg w-[540px] shadow-2xl flex flex-col max-h-[80vh]">
+      <div className="bg-surface-raised border border-surface-border rounded-lg w-[540px] shadow-2xl flex flex-col max-h-[80%]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border flex-shrink-0">
           <h2 className="text-sm font-semibold text-text-primary">Import CSV / JSON</h2>
@@ -157,7 +157,7 @@ export default function ImportDialog({ connectionId, onClose, onSuccess }: Props
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           {/* File picker */}
           <button
             className="w-full flex items-center gap-3 px-4 py-6 rounded border-2 border-dashed border-surface-border hover:border-accent text-text-muted hover:text-text-secondary transition-colors"

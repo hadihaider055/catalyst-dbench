@@ -1,0 +1,7 @@
+# cargo-audit config. Keep in sync with the [advisories] ignore list in deny.toml.
+[advisories]
+ignore = [
+  # rsa "Marvin" timing attack — no fixed release exists. sqlx-mysql only encrypts the
+  # password with the server's public key; the attack targets private-key decryption.
+  "RUSTSEC-2023-0071",
+]

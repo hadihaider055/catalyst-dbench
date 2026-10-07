@@ -1,5 +1,6 @@
 [package]
 name = "dbench-core"
+publish = false
 description = "Core traits, types, and errors for the Catalyst DBench database IDE"
 version.workspace = true
 edition.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "dbench-security"
+publish = false
 version = "0.1.0"
 edition = "2021"
 authors = ["Catalyst DBench Contributors"]
@@ -35,7 +36,6 @@ hostname = "0.3"               # OS hostname for audit log
 
 # TLS
 rustls = { version = "0.23", features = ["ring"] }
-rustls-pemfile = "2"             # PEM certificate parsing
 webpki-roots = "0.26"            # Mozilla root certificates
 
 # SSH tunneling

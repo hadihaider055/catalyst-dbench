@@ -111,6 +111,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
 
   const [tls, setTls] = useState(existing?.tls_enabled ?? false);
   const [tlsCaPath, setTlsCaPath] = useState(existing?.tls_ca_path ?? "");
+  const [preset, setPreset] = useState("");
   const [readOnly, setReadOnly] = useState(existing?.read_only ?? false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -136,6 +137,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
   const handleDbTypeChange = (t: DatabaseType) => {
     setDbType(t);
     setPort(String(DB_DEFAULTS[t] ?? ""));
+    setPreset("");
     if (t === "dynamodb" && host === "localhost") setHost("us-east-1");
     setUseUri(false);
     setTestResult(null);
@@ -258,7 +260,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface-raised border border-surface-border rounded-lg w-[520px] shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="bg-surface-raised border border-surface-border rounded-lg w-[520px] shadow-2xl flex flex-col max-h-[90%]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
           <h2 className="text-sm font-semibold text-text-primary">
             {reconnect ? "Connect" : existing ? "Edit Connection" : "New Connection"}
@@ -271,7 +273,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           <div>
             <label className="block text-xs text-text-secondary mb-2">Database Type</label>
             <div className="grid grid-cols-4 gap-2">
@@ -293,26 +295,30 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                 </button>
               ))}
             </div>
+          </div>
+
+          <Field label="Cloud provider" hint="optional">
             <select
-              className="mt-2 w-full bg-surface border border-surface-border rounded px-2 py-1.5 text-xs text-text-secondary focus:outline-none focus:border-accent"
-              value=""
+              className="w-full bg-surface border border-surface-border rounded px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent"
+              value={preset}
               onChange={(e) => {
                 const p = PRESETS[Number(e.target.value)];
                 if (!p) return;
                 handleDbTypeChange(p.db_type);
+                setPreset(e.target.value);
                 setPort(String(p.port));
                 setTls(p.tls);
                 if (!name) setName(p.label);
               }}
             >
-              <option value="">Cloud / compatible service preset (Aurora, RDS, Supabase, …)</option>
+              <option value="">Choose a provider to auto-fill port and TLS</option>
               {PRESETS.map((p, i) => (
                 <option key={p.label} value={i}>
                   {p.label} — {DB_LABELS[p.db_type]}
                 </option>
               ))}
             </select>
-          </div>
+          </Field>
 
           <Field label="Connection Name" hint="Display name">
             <Input

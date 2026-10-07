@@ -20,7 +20,9 @@ use dbench_security::tls::{TlsConfig, TlsMode};
 use futures_util::TryStreamExt;
 use mongodb::{
     bson::{doc, Bson, Document},
-    options::{ClientOptions, FindOptions, ServerApi, ServerApiVersion},
+    options::{
+        ClientOptions, Credential, FindOptions, ServerApi, ServerApiVersion, Tls, TlsOptions,
+    },
     Client,
 };
 use serde::{Deserialize, Serialize};
@@ -111,26 +113,12 @@ impl Driver for MongoDriver {
             if config.database.is_empty() {
                 return Err(CatalystError::Config("database name is required".into()));
             }
-            let scheme = "mongodb";
-            match (&config.username, &config.password) {
-                (Some(user), Some(pass)) => {
-                    let auth_source = config.auth_source.as_deref().unwrap_or("admin");
-                    format!(
-                        "{}://{}:{}@{}:{}/{}?authSource={}",
-                        scheme, user, pass, config.host, config.port, config.database, auth_source
-                    )
-                }
-                (Some(user), None) => {
-                    format!(
-                        "{}://{}@{}:{}/{}",
-                        scheme, user, config.host, config.port, config.database
-                    )
-                }
-                _ => format!(
-                    "{}://{}:{}/{}",
-                    scheme, config.host, config.port, config.database
-                ),
-            }
+            // Credentials go in `ClientOptions::credential` below, never into the URI
+            // string, so passwords containing `@`, `:` or `/` can't change the target host.
+            format!(
+                "mongodb://{}:{}/{}",
+                config.host, config.port, config.database
+            )
         };
 
         let timeout = Duration::from_millis(config.connect_timeout_ms.unwrap_or(10_000));
@@ -165,6 +153,27 @@ impl Driver for MongoDriver {
             client_options.repl_set_name = Some(rs.clone());
         }
 
+        if config.uri.is_none() {
+            if let Some(user) = &config.username {
+                client_options.credential = Some(
+                    Credential::builder()
+                        .username(user.clone())
+                        .password(config.password.clone())
+                        .source(config.auth_source.clone().unwrap_or_else(|| "admin".into()))
+                        .build(),
+                );
+            }
+        }
+
+        // Honour the TLS setting (a URI's own `tls=` option still applies when this is off).
+        if config.tls.mode != TlsMode::Disabled {
+            client_options.tls = Some(Tls::Enabled(
+                TlsOptions::builder()
+                    .ca_file_path(config.tls.ca_cert_path.clone())
+                    .build(),
+            ));
+        }
+
         tracing::info!(
             db_name = %db_name,
             "Connecting to MongoDB"
@@ -176,14 +185,12 @@ impl Driver for MongoDriver {
 
         let db = client.database(&db_name);
 
-        db.run_command(doc! { "ping": 1 }, None)
-            .await
-            .map_err(|e| {
-                CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string())
-            })?;
+        db.run_command(doc! { "ping": 1 }).await.map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Mongodb, &config.host, e.to_string())
+        })?;
 
         let server_version = db
-            .run_command(doc! { "buildInfo": 1 }, None)
+            .run_command(doc! { "buildInfo": 1 })
             .await
             .ok()
             .and_then(|d| d.get_str("version").ok().map(String::from));
@@ -298,7 +305,7 @@ impl Connection for MongoConnection {
                 "verbosity": "executionStats",
             };
             let result_doc = db
-                .run_command(explain_cmd, None)
+                .run_command(explain_cmd)
                 .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
@@ -338,7 +345,8 @@ impl Connection for MongoConnection {
             options.projection = projection;
 
             let cursor = collection
-                .find(filter, options)
+                .find(filter.unwrap_or_default())
+                .with_options(options)
                 .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
@@ -359,7 +367,7 @@ impl Connection for MongoConnection {
                 .unwrap_or_default();
 
             let cursor = collection
-                .aggregate(pipeline, None)
+                .aggregate(pipeline)
                 .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
@@ -380,7 +388,7 @@ impl Connection for MongoConnection {
                 .unwrap_or_default();
             let count = documents.len() as u64;
             collection
-                .insert_many(documents, None)
+                .insert_many(documents)
                 .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
             return Ok(QueryResult {
@@ -425,13 +433,13 @@ impl Connection for MongoConnection {
                 let collection = db.collection::<Document>(coll_name);
                 if multi {
                     let res = collection
-                        .update_many(q, u, None)
+                        .update_many(q, u)
                         .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_modified += res.modified_count;
                 } else {
                     let res = collection
-                        .update_one(q, u, None)
+                        .update_one(q, u)
                         .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_modified += res.modified_count;
@@ -472,13 +480,13 @@ impl Connection for MongoConnection {
                 let collection = db.collection::<Document>(coll_name);
                 if limit == 0 {
                     let res = collection
-                        .delete_many(q, None)
+                        .delete_many(q)
                         .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_deleted += res.deleted_count;
                 } else {
                     let res = collection
-                        .delete_one(q, None)
+                        .delete_one(q)
                         .await
                         .map_err(|e| CatalystError::query_failed(e.to_string()))?;
                     total_deleted += res.deleted_count;
@@ -498,7 +506,7 @@ impl Connection for MongoConnection {
             let cmd: Document = serde_json::from_value(cmd_val.clone())
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
             let result_doc = db
-                .run_command(cmd, None)
+                .run_command(cmd)
                 .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
             return Ok(docs_to_result(
@@ -516,7 +524,7 @@ impl Connection for MongoConnection {
         // List all user-accessible databases, skipping internal ones the user can't use.
         let db_names = self
             .client
-            .list_database_names(None, None)
+            .list_database_names()
             .await
             .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
@@ -531,13 +539,13 @@ impl Connection for MongoConnection {
         for db_name in &user_dbs {
             let db = self.client.database(db_name);
 
-            let collection_names = db.list_collection_names(None).await.unwrap_or_default();
+            let collection_names = db.list_collection_names().await.unwrap_or_default();
 
             for coll_name in collection_names {
                 let collection = db.collection::<Document>(&coll_name);
 
                 let pipeline = vec![doc! { "$sample": { "size": 50 } }];
-                let samples: Vec<Document> = match collection.aggregate(pipeline, None).await {
+                let samples: Vec<Document> = match collection.aggregate(pipeline).await {
                     Ok(cursor) => cursor.try_collect().await.unwrap_or_default(),
                     Err(_) => vec![],
                 };
@@ -549,13 +557,13 @@ impl Connection for MongoConnection {
                 }
 
                 let total_count = db
-                    .run_command(doc! { "collStats": &coll_name }, None)
+                    .run_command(doc! { "collStats": &coll_name })
                     .await
                     .ok()
                     .and_then(|d| d.get_i64("count").ok())
                     .map(|c| c as u64);
 
-                let index_cursor = collection.list_indexes(None).await.ok();
+                let index_cursor = collection.list_indexes().await.ok();
                 let indexes: Vec<IndexSchema> = if let Some(cursor) = index_cursor {
                     cursor
                         .try_collect::<Vec<_>>()
@@ -620,7 +628,7 @@ impl Connection for MongoConnection {
     async fn ping(&mut self) -> Result<Duration> {
         let start = Instant::now();
         let db = self.client.database(&self.db_name);
-        db.run_command(doc! { "ping": 1 }, None)
+        db.run_command(doc! { "ping": 1 })
             .await
             .map_err(|e| CatalystError::ConnectionLost {
                 reason: e.to_string(),

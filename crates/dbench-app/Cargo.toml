@@ -1,5 +1,6 @@
 [package]
 name = "dbench-app"
+publish = false
 description = "Tauri v2 desktop application backend for Catalyst DBench"
 version.workspace = true
 edition.workspace = true

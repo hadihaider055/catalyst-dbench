@@ -21,7 +21,7 @@ export default function ConfirmEditModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
-        className="bg-surface-raised border border-surface-border rounded-lg w-[640px] max-h-[80vh] flex flex-col shadow-2xl"
+        className="bg-surface-raised border border-surface-border rounded-lg w-[640px] max-h-[80%] flex flex-col shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
@@ -35,7 +35,7 @@ export default function ConfirmEditModal({
             <X size={14} />
           </button>
         </div>
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 min-h-0 overflow-auto p-4">
           <p className="text-2xs text-text-muted mb-2">
             Review and edit the SQL, then click Apply:
           </p>

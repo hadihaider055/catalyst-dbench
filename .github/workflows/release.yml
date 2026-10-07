@@ -96,10 +96,13 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
+      # Tauri v2's CLI has no --project-dir; run from the app crate. Bundles still
+      # land in the workspace target/ dir that the upload step globs.
       - name: Build Tauri app
         shell: bash
+        working-directory: crates/dbench-app
         run: |
-          cargo tauri build --project-dir crates/dbench-app ${{ matrix.args }} \
+          cargo tauri build ${{ matrix.args }} \
             --config '{"version":"${{ needs.semantic-release.outputs.new-release-version }}"}'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
