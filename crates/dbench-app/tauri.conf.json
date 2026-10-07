@@ -7,7 +7,7 @@
     "frontendDist": "../../frontend/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "",
-    "beforeBuildCommand": "npm run build --prefix ../../frontend"
+    "beforeBuildCommand": "npm run build --prefix ../frontend"
   },
   "app": {
     "withGlobalTauri": false,
