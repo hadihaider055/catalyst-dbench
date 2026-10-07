@@ -37,18 +37,7 @@
       "@semantic-release/changelog",
       { "changelogFile": "CHANGELOG.md" }
     ],
-    [
-      "@semantic-release/github",
-      {
-        "assets": [
-          { "path": "target/release/bundle/dmg/*.dmg",             "label": "macOS (Intel) DMG" },
-          { "path": "target/aarch64-apple-darwin/release/bundle/dmg/*.dmg", "label": "macOS (Apple Silicon) DMG" },
-          { "path": "target/release/bundle/deb/*.deb",             "label": "Linux DEB" },
-          { "path": "target/release/bundle/appimage/*.AppImage",   "label": "Linux AppImage" },
-          { "path": "target/release/bundle/msi/*.msi",             "label": "Windows MSI" }
-        ]
-      }
-    ],
+    "@semantic-release/github",
     [
       "@semantic-release/git",
       {

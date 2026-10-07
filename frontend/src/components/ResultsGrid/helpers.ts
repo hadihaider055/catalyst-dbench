@@ -133,6 +133,13 @@ export function buildMongoDelete(
   return JSON.stringify(cmd);
 }
 
+/** Quote an identifier for the given dialect, doubling embedded quote chars. */
+export function quoteIdent(dbType: string, name: string): string {
+  if (dbType === "mysql" || dbType === "clickhouse") return `\`${name.replace(/`/g, "``")}\``;
+  if (dbType === "mssql") return `[${name.replace(/]/g, "]]")}]`;
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 export function sqlValue(raw: Row["values"][number]): string {
   if (!raw || raw.type === "null") return "NULL";
   if (raw.type === "bool") return raw.v ? "TRUE" : "FALSE";

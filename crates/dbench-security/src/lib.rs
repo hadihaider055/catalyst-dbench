@@ -8,22 +8,21 @@
 //! 4. **Application Security** — IPC input validation, Tauri CSP enforcement
 //! 5. **Data Security** — column masking, read-only mode, parameterized queries
 //! 6. **Audit & Compliance** — append-only tamper-evident audit log
-//! 7. **Secrets Integration** — Vault, AWS Secrets Manager, 1Password
+//! 7. **Secrets Integration** — Vault, AWS Secrets Manager, 1Password (planned)
 //!
 //! # Example
 //!
 //! ```rust,no_run
 //! use dbench_security::{keychain::KeychainStore, audit::AuditLogger, AuditEvent};
+//! use secrecy::Secret;
 //!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let store = KeychainStore::new("my-connection-id");
-//!     store.store_password("supersecret").await?;
+//! # async fn run() -> dbench_security::Result<()> {
+//! KeychainStore::for_password("my-connection-id").store(&Secret::new("supersecret".into()))?;
 //!
-//!     let logger = AuditLogger::new("/var/log/catalyst/audit.jsonl")?;
-//!     logger.log(AuditEvent::connection_opened("my-connection-id", "postgres")).await?;
-//!     Ok(())
-//! }
+//! let logger = AuditLogger::new("/var/log/catalyst/audit.jsonl")?;
+//! logger.log(AuditEvent::AppStopped).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 #![forbid(unsafe_code)]

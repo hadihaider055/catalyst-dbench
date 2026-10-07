@@ -12,14 +12,14 @@ export const DB_LABELS: Record<DatabaseType, string> = {
   clickhouse: "ClickHouse", mongodb: "MongoDB", fauna: "FaunaDB",
   couchdb: "CouchDB", redis: "Redis", dynamodb: "DynamoDB",
   etcd: "etcd", cassandra: "Cassandra", hbase: "HBase",
-  surrealdb: "SurrealDB", elasticsearch: "Elasticsearch",
+  surrealdb: "SurrealDB", elasticsearch: "Elasticsearch / OpenSearch",
   influxdb: "InfluxDB", tigerbeetle: "TigerBeetle",
 };
 
 export const DB_DEFAULTS: Partial<Record<DatabaseType, number>> = {
   postgres: 5432, mysql: 3306, mssql: 1433, oracle: 1521,
   mongodb: 27017, redis: 6379, clickhouse: 8123,
-  cassandra: 9042, elasticsearch: 9200, influxdb: 8086,
+  cassandra: 9042, elasticsearch: 9200, influxdb: 8086, surrealdb: 8000,
 };
 
 export interface ConnectionInfo {
@@ -44,6 +44,7 @@ export interface ConnectionPayload {
   username: string;
   password?: string;
   tls_enabled: boolean;
+  tls_ca_path?: string;
   read_only: boolean;
   // SSH tunnel (optional)
   ssh_enabled?: boolean;
@@ -128,6 +129,7 @@ export interface SavedConnection {
   database: string;
   username: string;
   tls_enabled: boolean;
+  tls_ca_path?: string;
   read_only: boolean;
   color?: string;
   // SSH tunnel config (stored without passphrase)

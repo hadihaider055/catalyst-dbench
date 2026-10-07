@@ -27,14 +27,18 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install semantic-release
-        run: npm install --save-dev semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github conventional-changelog-conventionalcommits
-
+      # The action (unlike plain `npx semantic-release`) exposes new_release_* outputs,
+      # which gate the desktop build below.
       - name: Run semantic-release
         id: release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            conventional-changelog-conventionalcommits
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
 
   build-desktop:
     name: Build Desktop (${{ matrix.platform }})
@@ -93,14 +97,19 @@ jobs:
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Build Tauri app
-        run: cargo tauri build --project-dir crates/dbench-app ${{ matrix.args }}
+        shell: bash
+        run: |
+          cargo tauri build --project-dir crates/dbench-app ${{ matrix.args }} \
+            --config '{"version":"${{ needs.semantic-release.outputs.new-release-version }}"}'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbench-${{ matrix.platform }}-${{ needs.semantic-release.outputs.new-release-version }}
-          path: |
-            target/release/bundle/
-            target/*/release/bundle/
+      - name: Attach installers to GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(target/release/bundle/*/*.{dmg,deb,rpm,AppImage,msi,exe} target/*/release/bundle/*/*.{dmg,deb,rpm,AppImage,msi,exe})
+          echo "Uploading: ${files[*]}"
+          gh release upload "v${{ needs.semantic-release.outputs.new-release-version }}" "${files[@]}" --clobber

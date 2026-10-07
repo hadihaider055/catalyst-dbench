@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Catalyst DBench Contributors"]
 description = "Security layer for DBench — credential management, transport security, audit logging, and data masking"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/dbench-io/dbench"
+repository = "https://github.com/hadihaider055/catalyst-dbench"
 
 [dependencies]
 # Core async

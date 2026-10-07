@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { selectRowsSql } from "@/components/QueryEditor/snippets";
 import {
   Table2,
   Eye,
@@ -69,7 +70,7 @@ interface Props {
 }
 
 // DB types that support switching between databases
-const MULTI_DB_TYPES = new Set(["postgres", "mysql", "cockroachdb", "clickhouse", "cassandra"]);
+const MULTI_DB_TYPES = new Set(["postgres", "mysql", "cockroachdb", "clickhouse", "cassandra", "mssql"]);
 
 export default function SchemaTree({ connectionId }: Props) {
   const { schemas, loadSchema, openTab, openERDiagramTab, openDdlTab, activeConnections, switchDatabase } =
@@ -163,7 +164,7 @@ export default function SchemaTree({ connectionId }: Props) {
               ? { find: ctx.name, db: ctx.schema, limit: 100 }
               : { find: ctx.name, limit: 100 },
           )
-        : `SELECT * FROM ${fqn} LIMIT 100;`;
+        : selectRowsSql(dbType, fqn);
     const countQuery =
       dbType === "mongodb"
         ? JSON.stringify(
@@ -342,7 +343,7 @@ export default function SchemaTree({ connectionId }: Props) {
       if (database) q.db = database;
       return JSON.stringify(q);
     }
-    return `SELECT * FROM ${name} LIMIT 100;`;
+    return selectRowsSql(dbType, name);
   };
 
   const handleTableClick = async (name: string, database?: string) => {

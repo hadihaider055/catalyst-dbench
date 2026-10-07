@@ -7,12 +7,7 @@
 //!
 //! Call [`init_logging`] once at application startup.
 
-use tracing_subscriber::{
-    fmt,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-    EnvFilter,
-};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// Field names that are redacted from all log output.
 ///
@@ -47,8 +42,8 @@ pub const SENSITIVE_FIELD_NAMES: &[&str] = &[
 /// # Panics
 /// Panics if a global subscriber is already set (call only once at startup).
 pub fn init_logging() {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("catalyst=info,warn"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("catalyst=info,warn"));
 
     let is_dev = std::env::var("DBENCH_DEV").as_deref() == Ok("1");
 

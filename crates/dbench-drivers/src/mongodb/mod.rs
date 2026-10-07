@@ -31,10 +31,11 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Configuration for connecting to MongoDB.
-#[derive(ConnectionConfig, Debug, Clone, Serialize, Deserialize)]
+#[derive(ConnectionConfig, Clone, Serialize, Deserialize)]
 pub struct MongoConfig {
     /// MongoDB connection URI (e.g., `mongodb://host:27017`).
-    /// If set, it takes precedence over individual fields.
+    /// If set, it takes precedence over individual fields. May embed credentials.
+    #[config(secret)]
     pub uri: Option<String>,
     /// Hostname (used when `uri` is not set).
     pub host: String,

@@ -3,8 +3,7 @@
 use dbench_core::{
     error::CatalystError,
     schema::{
-        ColumnSchema, DatabaseSchema, ForeignKeySchema, SchemaObject, TableSchema,
-        ViewSchema,
+        ColumnSchema, DatabaseSchema, ForeignKeySchema, SchemaObject, TableSchema, ViewSchema,
     },
     types::DatabaseType,
     Result,
@@ -22,7 +21,9 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         .unwrap_or_else(|| "unknown".into());
 
     // Fetch all tables.
-    let table_rows = client.query("
+    let table_rows = client
+        .query(
+            "
         SELECT t.table_schema, t.table_name,
                obj_description(c.oid, 'pg_class') AS comment
         FROM information_schema.tables t
@@ -31,10 +32,16 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         WHERE t.table_type = 'BASE TABLE'
           AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
         ORDER BY t.table_schema, t.table_name
-    ", &[]).await.map_err(|e| CatalystError::SchemaError(e.to_string()))?;
+    ",
+            &[],
+        )
+        .await
+        .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
     // Fetch all columns.
-    let col_rows = client.query("
+    let col_rows = client
+        .query(
+            "
         SELECT c.table_schema, c.table_name, c.column_name,
                c.ordinal_position::int4, c.udt_name, c.is_nullable,
                c.column_default,
@@ -50,7 +57,11 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         FROM information_schema.columns c
         WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
         ORDER BY c.table_schema, c.table_name, c.ordinal_position
-    ", &[]).await.map_err(|e| CatalystError::SchemaError(e.to_string()))?;
+    ",
+            &[],
+        )
+        .await
+        .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
     // Build column map: (schema, table) -> Vec<ColumnSchema>
     let mut col_map: std::collections::HashMap<(String, String), Vec<ColumnSchema>> =
@@ -65,20 +76,25 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         let default: Option<String> = row.try_get(6).ok().flatten();
         let is_pk: bool = row.try_get(7).unwrap_or(false);
 
-        col_map.entry((schema, table)).or_default().push(ColumnSchema {
-            name: col_name,
-            ordinal: ordinal as u32,
-            native_type: udt,
-            nullable: nullable == "YES",
-            default_value: default,
-            is_primary_key: is_pk,
-            is_unique: false,
-            comment: None,
-        });
+        col_map
+            .entry((schema, table))
+            .or_default()
+            .push(ColumnSchema {
+                name: col_name,
+                ordinal: ordinal as u32,
+                native_type: udt,
+                nullable: nullable == "YES",
+                default_value: default,
+                is_primary_key: is_pk,
+                is_unique: false,
+                comment: None,
+            });
     }
 
     // Fetch all foreign keys in a single query.
-    let fk_rows = client.query("
+    let fk_rows = client
+        .query(
+            "
         SELECT
             tc.table_schema,
             tc.table_name,
@@ -102,7 +118,11 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         WHERE tc.constraint_type = 'FOREIGN KEY'
           AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
         ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position
-    ", &[]).await.unwrap_or_default();
+    ",
+            &[],
+        )
+        .await
+        .unwrap_or_default();
 
     // Build FK map: (schema, table) -> Vec<ForeignKeySchema>
     // Each constraint may span multiple columns, so we group by constraint name.
@@ -113,9 +133,9 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
 
     for row in &fk_rows {
         let schema: String = row.try_get(0).unwrap_or_default();
-        let table: String  = row.try_get(1).unwrap_or_default();
-        let cname: String  = row.try_get(2).unwrap_or_default();
-        let col: String    = row.try_get(3).unwrap_or_default();
+        let table: String = row.try_get(1).unwrap_or_default();
+        let cname: String = row.try_get(2).unwrap_or_default();
+        let col: String = row.try_get(3).unwrap_or_default();
         let ref_tbl: String = row.try_get(4).unwrap_or_default();
         let ref_col: String = row.try_get(5).unwrap_or_default();
         let on_del: Option<String> = row.try_get(6).ok();
@@ -144,7 +164,9 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
         let name: String = row.try_get(1).unwrap_or_default();
         let comment: Option<String> = row.try_get(2).ok().flatten();
 
-        let columns = col_map.remove(&(schema.clone(), name.clone())).unwrap_or_default();
+        let columns = col_map
+            .remove(&(schema.clone(), name.clone()))
+            .unwrap_or_default();
         let foreign_keys = fk_map
             .remove(&(schema.clone(), name.clone()))
             .map(|m| m.into_values().collect())
@@ -162,12 +184,18 @@ pub async fn inspect(client: &tokio_postgres::Client, db_name: &str) -> Result<D
     }
 
     // Fetch views too.
-    let view_rows = client.query("
+    let view_rows = client
+        .query(
+            "
         SELECT table_schema, table_name
         FROM information_schema.views
         WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
         ORDER BY table_schema, table_name
-    ", &[]).await.map_err(|e| CatalystError::SchemaError(e.to_string()))?;
+    ",
+            &[],
+        )
+        .await
+        .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
     for row in &view_rows {
         let schema: String = row.try_get(0).unwrap_or_default();

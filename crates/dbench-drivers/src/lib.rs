@@ -17,8 +17,13 @@
 //! | `mongodb` | MongoDB | no |
 //! | `redis` | Redis | no |
 //! | `clickhouse` | ClickHouse (HTTP) | no |
-//! | `all` | All of the above | no |
 //! | `cassandra` | Cassandra / ScyllaDB | no |
+//! | `mssql` | SQL Server / Azure SQL | no |
+//! | `elasticsearch` | Elasticsearch / OpenSearch (HTTP) | no |
+//! | `surrealdb` | SurrealDB (HTTP) | no |
+//! | `oracle` | Oracle (needs Instant Client at runtime) | no |
+//! | `dynamodb` | Amazon DynamoDB (PartiQL) | no |
+//! | `all` | All of the above | no |
 //!
 //! ## Adding a New Driver
 //!
@@ -54,6 +59,27 @@ pub mod clickhouse;
 #[cfg(feature = "cassandra")]
 pub mod cassandra;
 
+#[cfg(feature = "mssql")]
+pub mod mssql;
+
+#[cfg(feature = "elasticsearch")]
+pub mod elasticsearch;
+
+#[cfg(feature = "surrealdb")]
+pub mod surrealdb;
+
+#[cfg(feature = "oracle")]
+pub mod oracle;
+
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb;
+
+#[cfg(any(feature = "elasticsearch", feature = "surrealdb", feature = "dynamodb"))]
+mod http;
+
+#[cfg(any(feature = "mssql", feature = "oracle"))]
+mod sqlmeta;
+
 // Convenience re-exports
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresConfig, PostgresDriver};
@@ -75,3 +101,18 @@ pub use clickhouse::{ClickhouseConfig, ClickhouseDriver};
 
 #[cfg(feature = "cassandra")]
 pub use cassandra::{CassandraConfig, CassandraDriver};
+
+#[cfg(feature = "mssql")]
+pub use mssql::{MssqlConfig, MssqlDriver};
+
+#[cfg(feature = "elasticsearch")]
+pub use elasticsearch::{ElasticsearchConfig, ElasticsearchDriver};
+
+#[cfg(feature = "surrealdb")]
+pub use surrealdb::{SurrealConfig, SurrealDriver};
+
+#[cfg(feature = "oracle")]
+pub use oracle::{OracleConfig, OracleDriver};
+
+#[cfg(feature = "dynamodb")]
+pub use dynamodb::{DynamoConfig, DynamoDriver};

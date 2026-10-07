@@ -11,16 +11,18 @@ use dbench_core::{
     error::CatalystError,
     query::Query,
     result::{Column, ColumnType, QueryResult, Row, Value},
-    schema::{ColumnSchema, DatabaseSchema, ForeignKeySchema, IndexSchema, SchemaObject, TableSchema},
+    schema::{
+        ColumnSchema, DatabaseSchema, ForeignKeySchema, IndexSchema, SchemaObject, TableSchema,
+    },
     types::{ConnectionInfo, ConnectionMode, DatabaseType},
     Result,
 };
 use dbench_macros::ConnectionConfig;
 use dbench_security::tls::{TlsConfig, TlsMode};
-use serde::{Deserialize, Serialize};
+use scylla::frame::response::result::CqlValue;
 #[allow(deprecated)]
 use scylla::{Session, SessionBuilder};
-use scylla::frame::response::result::CqlValue;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Configuration for a Cassandra / ScyllaDB connection.
-#[derive(ConnectionConfig, Debug, Clone, Serialize, Deserialize)]
+#[derive(ConnectionConfig, Clone, Serialize, Deserialize)]
 pub struct CassandraConfig {
     #[config(required)]
     pub host: String,
@@ -51,7 +53,10 @@ impl Default for CassandraConfig {
             database: String::new(),
             username: String::new(),
             password: None,
-            tls: TlsConfig { mode: TlsMode::Disabled, ..Default::default() },
+            tls: TlsConfig {
+                mode: TlsMode::Disabled,
+                ..Default::default()
+            },
             mode: ConnectionMode::ReadWrite,
             connect_timeout_ms: Some(10_000),
         }
@@ -69,9 +74,15 @@ impl Driver for CassandraDriver {
     type Connection = CassandraConnection;
     type Config = CassandraConfig;
 
-    fn name(&self) -> &'static str { "cassandra" }
-    fn database_type(&self) -> DatabaseType { DatabaseType::Cassandra }
-    fn default_port(&self) -> Option<u16> { Some(9042) }
+    fn name(&self) -> &'static str {
+        "cassandra"
+    }
+    fn database_type(&self) -> DatabaseType {
+        DatabaseType::Cassandra
+    }
+    fn default_port(&self) -> Option<u16> {
+        Some(9042)
+    }
 
     #[allow(deprecated)]
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
@@ -101,12 +112,9 @@ impl Driver for CassandraDriver {
             builder = builder.use_keyspace(&config.database, false);
         }
 
-        let session = builder
-            .build()
-            .await
-            .map_err(|e| CatalystError::connection_failed(
-                DatabaseType::Cassandra, &config.host, e.to_string(),
-            ))?;
+        let session = builder.build().await.map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Cassandra, &config.host, e.to_string())
+        })?;
 
         let session = Arc::new(session);
 
@@ -152,15 +160,15 @@ impl Connection for CassandraConnection {
     #[allow(deprecated)]
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         if !self.alive {
-            return Err(CatalystError::ConnectionLost { reason: "connection is closed".into() });
+            return Err(CatalystError::ConnectionLost {
+                reason: "connection is closed".into(),
+            });
         }
 
-        if !self.mode.allows_writes() {
-            let upper = query.text.trim_start().to_uppercase();
-            let writes = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE"];
-            if writes.iter().any(|kw| upper.starts_with(kw)) {
-                return Err(CatalystError::ReadOnlyViolation);
-            }
+        // Scans every statement, ignoring comments/strings; also blocks `SET …` so a
+        // session-level READ ONLY can't be switched back off.
+        if !self.mode.allows_writes() && dbench_core::guard::is_sql_write(&query.text) {
+            return Err(CatalystError::ReadOnlyViolation);
         }
 
         let start = Instant::now();
@@ -220,7 +228,9 @@ impl Connection for CassandraConnection {
         self.session
             .query("SELECT key FROM system.local WHERE key = 'local'", &[])
             .await
-            .map_err(|e| CatalystError::ConnectionLost { reason: e.to_string() })?;
+            .map_err(|e| CatalystError::ConnectionLost {
+                reason: e.to_string(),
+            })?;
         Ok(start.elapsed())
     }
 
@@ -229,9 +239,15 @@ impl Connection for CassandraConnection {
         Ok(())
     }
 
-    fn is_alive(&self) -> bool { self.alive }
-    fn info(&self) -> &ConnectionInfo { &self.info }
-    fn mode(&self) -> ConnectionMode { self.mode }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+    fn mode(&self) -> ConnectionMode {
+        self.mode
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -257,11 +273,13 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
         .unwrap_or_default()
         .into_iter()
         .filter_map(|row| {
-            row.columns
-                .into_iter()
-                .next()
-                .flatten()
-                .and_then(|v| if let CqlValue::Text(s) = v { Some(s) } else { None })
+            row.columns.into_iter().next().flatten().and_then(|v| {
+                if let CqlValue::Text(s) = v {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
         })
         .collect();
 
@@ -283,11 +301,13 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
             .unwrap_or_default()
             .into_iter()
             .filter_map(|row| {
-                row.columns
-                    .into_iter()
-                    .next()
-                    .flatten()
-                    .and_then(|v| if let CqlValue::Text(s) = v { Some(s) } else { None })
+                row.columns.into_iter().next().flatten().and_then(|v| {
+                    if let CqlValue::Text(s) = v {
+                        Some(s)
+                    } else {
+                        None
+                    }
+                })
             })
             .collect();
 
@@ -309,17 +329,35 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
                 let col_name = cols
                     .next()
                     .flatten()
-                    .and_then(|v| if let CqlValue::Text(s) = v { Some(s) } else { None })
+                    .and_then(|v| {
+                        if let CqlValue::Text(s) = v {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap_or_default();
                 let col_type = cols
                     .next()
                     .flatten()
-                    .and_then(|v| if let CqlValue::Text(s) = v { Some(s) } else { None })
+                    .and_then(|v| {
+                        if let CqlValue::Text(s) = v {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap_or_default();
                 let kind = cols
                     .next()
                     .flatten()
-                    .and_then(|v| if let CqlValue::Text(s) = v { Some(s) } else { None })
+                    .and_then(|v| {
+                        if let CqlValue::Text(s) = v {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap_or_default();
                 let position = cols
                     .next()
@@ -365,7 +403,10 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
     Ok(DatabaseSchema {
         name: db_name,
         db_type: DatabaseType::Cassandra,
-        server_version: info.server_version.clone().unwrap_or_else(|| "unknown".into()),
+        server_version: info
+            .server_version
+            .clone()
+            .unwrap_or_else(|| "unknown".into()),
         objects,
     })
 }
@@ -377,7 +418,10 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
 #[allow(deprecated)]
 async fn fetch_server_version(session: &Session) -> Option<String> {
     let result = session
-        .query("SELECT release_version FROM system.local WHERE key = 'local'", &[])
+        .query(
+            "SELECT release_version FROM system.local WHERE key = 'local'",
+            &[],
+        )
         .await
         .ok()?;
     result
@@ -388,7 +432,13 @@ async fn fetch_server_version(session: &Session) -> Option<String> {
         .into_iter()
         .next()
         .flatten()
-        .and_then(|v| if let CqlValue::Text(s) = v { Some(s) } else { None })
+        .and_then(|v| {
+            if let CqlValue::Text(s) = v {
+                Some(s)
+            } else {
+                None
+            }
+        })
 }
 
 fn cql_type_to_col_type(cql: &scylla::frame::response::result::ColumnType) -> ColumnType {
@@ -430,8 +480,7 @@ fn cql_to_value(v: Option<CqlValue>) -> Value {
         Some(CqlValue::Date(d)) => Value::Date(format!("{d:?}")),
         Some(CqlValue::Time(t)) => Value::Time(format!("{t:?}")),
         Some(CqlValue::Timestamp(ts)) => {
-            let dt = chrono::DateTime::from_timestamp_millis(ts.0)
-                .unwrap_or_default();
+            let dt = chrono::DateTime::from_timestamp_millis(ts.0).unwrap_or_default();
             Value::Timestamp(dt)
         }
         Some(CqlValue::Uuid(u)) => Value::Uuid(u),

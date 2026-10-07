@@ -5,8 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::result::Value;
-
 /// A parameterized database query.
 ///
 /// # Example

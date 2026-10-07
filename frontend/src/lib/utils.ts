@@ -17,6 +17,9 @@ export function dbColor(type: DatabaseType): string {
     elasticsearch: "#f04e98",
     cassandra: "#1287b1",
     dynamodb: "#527fff",
+    mssql: "#cc2927",
+    oracle: "#f80000",
+    surrealdb: "#ff00a0",
   };
   return map[type] ?? "#6a6a6a";
 }
@@ -26,7 +29,7 @@ export function dbIcon(type: DatabaseType): string {
     postgres: "🐘", mysql: "🐬", sqlite: "🗃️",
     mongodb: "🍃", redis: "🔴", cockroachdb: "🪳",
     clickhouse: "🖱️", elasticsearch: "🔍", cassandra: "👁️",
-    dynamodb: "⚡", surrealdb: "🌀",
+    dynamodb: "⚡", surrealdb: "🌀", mssql: "🪟", oracle: "🔶",
   };
   return map[type] ?? "🗄️";
 }

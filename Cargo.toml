@@ -14,9 +14,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Catalyst DBench Contributors"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/dbench-io/dbench"
-homepage = "https://dbench.dev"
-rust-version = "1.75"
+repository = "https://github.com/hadihaider055/catalyst-dbench"
+rust-version = "1.92"
 
 # Shared dependency versions — pin once, use everywhere.
 [workspace.dependencies]

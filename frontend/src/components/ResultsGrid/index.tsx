@@ -45,6 +45,7 @@ import { useAppStore } from "@/stores/useAppStore";
 import { displayValue } from "@/lib/types";
 import type { QueryTab, Row, BatchStatementResult } from "@/lib/types";
 import {
+  quoteIdent,
   SQL_DB_TYPES,
   escapeCsvCell,
   exportCsv,
@@ -469,14 +470,10 @@ function DataTable({ tab }: Props) {
           label: pendingDeletes.has(rowIdx) ? "Undo delete" : "Delete row…",
           icon: <Trash2 size={11} />,
           danger: true,
+          // Without a primary key there is no safe WHERE clause — never offer the delete.
+          disabled: !pkVal || pkVal === "NULL",
           onClick: () => {
-            if (!pkVal || pkVal === "NULL") {
-              if (isSqlDb && tableName) {
-                setConfirmSql(
-                  `DELETE FROM ${tableName} -- WARNING: no PK detected;`,
-                );
-              }
-            } else {
+            if (pkVal && pkVal !== "NULL") {
               toggleDelete(rowIdx);
               if (!editMode) setEditMode(true);
             }
@@ -521,16 +518,15 @@ function DataTable({ tab }: Props) {
             newVal,
           ),
         );
-      } else if (tableName) {
-        const pkVal = pkColIdx >= 0 ? sqlValue(row.values[pkColIdx]) : null;
-        const where = pkVal
-          ? `WHERE ${pkColumn} = ${pkVal}`
-          : "-- WARNING: no PK found";
+      } else if (tableName && pkColumn && pkColIdx >= 0) {
+        // Only ever emit a statement with a primary-key WHERE clause: a missing
+        // WHERE would rewrite every row in the table.
+        const where = `WHERE ${quoteIdent(tab.db_type, pkColumn)} = ${sqlValue(row.values[pkColIdx])}`;
         const val =
           newVal === "" || newVal === "NULL"
             ? "NULL"
             : `'${newVal.replace(/'/g, "''")}'`;
-        cmds.push(`UPDATE ${tableName} SET \`${colName}\` = ${val} ${where};`);
+        cmds.push(`UPDATE ${tableName} SET ${quoteIdent(tab.db_type, colName)} = ${val} ${where};`);
       }
     }
     for (const rowIdx of pendingDeletes) {
@@ -538,11 +534,8 @@ function DataTable({ tab }: Props) {
       if (isMongo && collectionName && pkColIdx >= 0) {
         const pkVal = displayValue(row.values[pkColIdx] ?? { type: "null" });
         cmds.push(buildMongoDelete(collectionName, mongoDb, pkColumn!, pkVal));
-      } else if (tableName) {
-        const pkVal = pkColIdx >= 0 ? sqlValue(row.values[pkColIdx]) : null;
-        const where = pkVal
-          ? `WHERE ${pkColumn} = ${pkVal}`
-          : "-- WARNING: no PK found";
+      } else if (tableName && pkColumn && pkColIdx >= 0) {
+        const where = `WHERE ${quoteIdent(tab.db_type, pkColumn)} = ${sqlValue(row.values[pkColIdx])}`;
         cmds.push(`DELETE FROM ${tableName} ${where};`);
       }
     }
@@ -558,6 +551,7 @@ function DataTable({ tab }: Props) {
     pkColIdx,
     pkColumn,
     result.rows,
+    tab.db_type,
   ]);
 
   const handleConfirmExecute = async (rawText: string) => {

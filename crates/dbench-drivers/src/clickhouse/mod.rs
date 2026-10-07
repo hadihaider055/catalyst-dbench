@@ -27,7 +27,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Configuration for connecting to ClickHouse via HTTP.
-#[derive(ConnectionConfig, Debug, Clone, Serialize, Deserialize)]
+#[derive(ConnectionConfig, Clone, Serialize, Deserialize)]
 pub struct ClickhouseConfig {
     pub host: String,
     /// HTTP port (default: 8123; HTTPS: 8443).
@@ -49,7 +49,10 @@ impl Default for ClickhouseConfig {
             database: "default".into(),
             username: "default".into(),
             password: None,
-            tls: TlsConfig { mode: TlsMode::Disabled, ..Default::default() },
+            tls: TlsConfig {
+                mode: TlsMode::Disabled,
+                ..Default::default()
+            },
             mode: ConnectionMode::ReadWrite,
             connect_timeout_ms: Some(10_000),
         }
@@ -66,16 +69,22 @@ impl Driver for ClickhouseDriver {
     type Connection = ClickhouseConnection;
     type Config = ClickhouseConfig;
 
-    fn name(&self) -> &'static str { "clickhouse" }
-    fn database_type(&self) -> DatabaseType { DatabaseType::Clickhouse }
-    fn default_port(&self) -> Option<u16> { Some(8123) }
+    fn name(&self) -> &'static str {
+        "clickhouse"
+    }
+    fn database_type(&self) -> DatabaseType {
+        DatabaseType::Clickhouse
+    }
+    fn default_port(&self) -> Option<u16> {
+        Some(8123)
+    }
 
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
         config.validate()?;
 
         let timeout = Duration::from_millis(config.connect_timeout_ms.unwrap_or(10_000));
         let client = build_client(timeout)?;
-        let base_url = build_base_url(config);
+        let base_url = build_base_url(config)?;
 
         // Ping: run a trivial query to verify the connection.
         let pong = send_raw(
@@ -144,17 +153,14 @@ pub struct ClickhouseConnection {
 impl Connection for ClickhouseConnection {
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         if !self.alive {
-            return Err(CatalystError::ConnectionLost { reason: "connection is closed".into() });
+            return Err(CatalystError::ConnectionLost {
+                reason: "connection is closed".into(),
+            });
         }
 
-        // Write guard.
-        if !self.mode.allows_writes() {
-            let upper = query.text.trim_start().to_uppercase();
-            for kw in &["INSERT", "CREATE", "DROP", "TRUNCATE", "ALTER", "RENAME", "OPTIMIZE"] {
-                if upper.starts_with(kw) {
-                    return Err(CatalystError::ReadOnlyViolation);
-                }
-            }
+        // Server enforces readonly=1; this client check just gives a clearer error.
+        if !self.mode.allows_writes() && dbench_core::guard::is_sql_write(&query.text) {
+            return Err(CatalystError::ReadOnlyViolation);
         }
 
         let start = Instant::now();
@@ -162,39 +168,58 @@ impl Connection for ClickhouseConnection {
         let sql = if query.text.to_uppercase().contains("FORMAT ") {
             query.text.clone()
         } else {
-            format!("{} FORMAT JSONCompact", query.text.trim_end().trim_end_matches(';'))
+            format!(
+                "{} FORMAT JSONCompact",
+                query.text.trim_end().trim_end_matches(';')
+            )
         };
 
-        let raw = send_raw(&self.client, &self.base_url, &self.username, self.password.as_deref(), &sql)
-            .await
-            .map_err(|e| CatalystError::query_failed(e))?;
+        let raw = send_raw(
+            &self.client,
+            &self.base_url,
+            &self.username,
+            self.password.as_deref(),
+            &sql,
+        )
+        .await
+        .map_err(CatalystError::query_failed)?;
 
         parse_response(&raw, start.elapsed().as_millis() as u64)
     }
 
     async fn inspect_schema(&mut self) -> Result<DatabaseSchema> {
         let db = &self.info.database;
+        let db_lit = dbench_core::guard::quote_literal(db);
 
         // Columns for all user tables in the connected database.
         let col_sql = format!(
             "SELECT table, name, type, is_in_primary_key, is_in_sorting_key \
              FROM system.columns \
-             WHERE database = '{db}' \
+             WHERE database = {db_lit} \
              ORDER BY table, position \
              FORMAT JSONCompact"
         );
 
-        let raw = send_raw(&self.client, &self.base_url, &self.username, self.password.as_deref(), &col_sql)
-            .await
-            .map_err(|e| CatalystError::SchemaError(e))?;
+        let raw = send_raw(
+            &self.client,
+            &self.base_url,
+            &self.username,
+            self.password.as_deref(),
+            &col_sql,
+        )
+        .await
+        .map_err(CatalystError::SchemaError)?;
 
-        let resp: ChResponse = serde_json::from_str(&raw)
-            .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
+        let resp: ChResponse =
+            serde_json::from_str(&raw).map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
         // Group columns by table name.
-        let mut tables: std::collections::BTreeMap<String, Vec<ColumnSchema>> = std::collections::BTreeMap::new();
+        let mut tables: std::collections::BTreeMap<String, Vec<ColumnSchema>> =
+            std::collections::BTreeMap::new();
         for (ordinal, row) in resp.data.iter().enumerate() {
-            if row.len() < 5 { continue; }
+            if row.len() < 5 {
+                continue;
+            }
             let table_name = row[0].as_str().unwrap_or("").to_string();
             let col_name = row[1].as_str().unwrap_or("").to_string();
             let native_type = row[2].as_str().unwrap_or("").to_string();
@@ -225,10 +250,19 @@ impl Connection for ClickhouseConnection {
 
         // Row counts via system.tables.
         let counts_sql = format!(
-            "SELECT name, total_rows FROM system.tables WHERE database = '{db}' FORMAT JSONCompact"
+            "SELECT name, total_rows FROM system.tables WHERE database = {db_lit} FORMAT JSONCompact"
         );
-        let mut row_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-        if let Ok(raw2) = send_raw(&self.client, &self.base_url, &self.username, self.password.as_deref(), &counts_sql).await {
+        let mut row_counts: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+        if let Ok(raw2) = send_raw(
+            &self.client,
+            &self.base_url,
+            &self.username,
+            self.password.as_deref(),
+            &counts_sql,
+        )
+        .await
+        {
             if let Ok(resp2) = serde_json::from_str::<ChResponse>(&raw2) {
                 for row in resp2.data {
                     if row.len() >= 2 {
@@ -258,16 +292,26 @@ impl Connection for ClickhouseConnection {
         Ok(DatabaseSchema {
             name: db.clone(),
             db_type: DatabaseType::Clickhouse,
-            server_version: self.info.server_version.clone().unwrap_or_else(|| "ClickHouse".into()),
+            server_version: self
+                .info
+                .server_version
+                .clone()
+                .unwrap_or_else(|| "ClickHouse".into()),
             objects,
         })
     }
 
     async fn ping(&mut self) -> Result<Duration> {
         let start = Instant::now();
-        send_raw(&self.client, &self.base_url, &self.username, self.password.as_deref(), "SELECT 1")
-            .await
-            .map_err(|e| CatalystError::ConnectionLost { reason: e })?;
+        send_raw(
+            &self.client,
+            &self.base_url,
+            &self.username,
+            self.password.as_deref(),
+            "SELECT 1",
+        )
+        .await
+        .map_err(|e| CatalystError::ConnectionLost { reason: e })?;
         Ok(start.elapsed())
     }
 
@@ -276,22 +320,37 @@ impl Connection for ClickhouseConnection {
         Ok(())
     }
 
-    fn is_alive(&self) -> bool { self.alive }
-    fn info(&self) -> &ConnectionInfo { &self.info }
-    fn mode(&self) -> ConnectionMode { self.mode }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+    fn mode(&self) -> ConnectionMode {
+        self.mode
+    }
 }
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-fn build_base_url(config: &ClickhouseConfig) -> String {
+/// Endpoint URL including the target database and, for read-only connections,
+/// `readonly=1` so the *server* rejects writes regardless of query text.
+fn build_base_url(config: &ClickhouseConfig) -> Result<String> {
     let scheme = if config.tls.mode != TlsMode::Disabled {
         "https"
     } else {
         "http"
     };
-    format!("{}://{}:{}", scheme, config.host, config.port)
+    let mut url = reqwest::Url::parse(&format!("{scheme}://{}:{}/", config.host, config.port))
+        .map_err(|e| CatalystError::Config(format!("invalid ClickHouse host: {e}")))?;
+    url.query_pairs_mut()
+        .append_pair("database", &config.database);
+    if !config.mode.allows_writes() {
+        url.query_pairs_mut().append_pair("readonly", "1");
+    }
+    Ok(url.into())
 }
 
 fn build_client(timeout: Duration) -> Result<Client> {
@@ -299,7 +358,9 @@ fn build_client(timeout: Duration) -> Result<Client> {
         .timeout(timeout)
         .use_rustls_tls()
         .build()
-        .map_err(|e| CatalystError::connection_failed(DatabaseType::Clickhouse, "unknown", e.to_string()))
+        .map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Clickhouse, "unknown", e.to_string())
+        })
 }
 
 async fn send_raw(
@@ -309,9 +370,8 @@ async fn send_raw(
     password: Option<&str>,
     sql: &str,
 ) -> std::result::Result<String, String> {
-    let url = format!("{base_url}/");
     let mut req = client
-        .post(&url)
+        .post(base_url)
         .header("X-ClickHouse-User", username)
         .header("Content-Type", "text/plain; charset=utf-8")
         .body(sql.to_owned());
@@ -380,8 +440,9 @@ fn parse_response(raw: &str, fallback_ms: u64) -> Result<QueryResult> {
         });
     }
 
-    let resp: ChResponse = serde_json::from_str(raw)
-        .map_err(|e| CatalystError::query_failed(format!("Failed to parse ClickHouse response: {e}")))?;
+    let resp: ChResponse = serde_json::from_str(raw).map_err(|e| {
+        CatalystError::query_failed(format!("Failed to parse ClickHouse response: {e}"))
+    })?;
 
     let duration_ms = resp
         .statistics
@@ -471,11 +532,10 @@ fn json_to_value(v: serde_json::Value, col_type: &str) -> Value {
         serde_json::Value::String(s) => {
             if inner.starts_with("DateTime") {
                 // ClickHouse returns DateTime as "2024-01-01 12:00:00"
-                Value::Timestamp(
-                    chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
-                        .map(|dt| chrono::DateTime::from_naive_utc_and_offset(dt, chrono::Utc))
-                        .unwrap_or_else(|_| chrono::Utc::now()),
-                )
+                // Fractional/zoned variants (DateTime64) fall back to the raw text.
+                chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                    .map(|dt| chrono::DateTime::from_naive_utc_and_offset(dt, chrono::Utc))
+                    .map_or_else(|_| Value::Text(s.clone()), Value::Timestamp)
             } else if inner == "Date" || inner == "Date32" {
                 Value::Date(s)
             } else if inner == "UUID" {
@@ -491,9 +551,11 @@ fn json_to_value(v: serde_json::Value, col_type: &str) -> Value {
                 Value::Text(s)
             }
         }
-        serde_json::Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(|v| json_to_value(v, "String")).collect())
-        }
+        serde_json::Value::Array(arr) => Value::Array(
+            arr.into_iter()
+                .map(|v| json_to_value(v, "String"))
+                .collect(),
+        ),
         serde_json::Value::Object(map) => Value::Object(map),
     }
 }

@@ -29,8 +29,7 @@ fn main() {
                 .expect("log dir unavailable")
                 .join("audit.jsonl");
 
-            let audit = AuditLogger::new(&audit_path)
-                .expect("failed to initialize audit logger");
+            let audit = AuditLogger::new(&audit_path).expect("failed to initialize audit logger");
 
             // Share a single registry between AppState and QueryExecutor.
             let registry = Arc::new(ConnectionRegistry::new());
@@ -44,7 +43,10 @@ fn main() {
                 cancel_tokens: Arc::new(DashMap::new()),
             });
 
-            tracing::info!(version = env!("CARGO_PKG_VERSION"), "Catalyst DBench started");
+            tracing::info!(
+                version = env!("CARGO_PKG_VERSION"),
+                "Catalyst DBench started"
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

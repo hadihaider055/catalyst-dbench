@@ -109,8 +109,8 @@ pub enum Value {
     Decimal(String),
     Text(String),
     Bytes(Vec<u8>),
-    Date(String),          // ISO-8601 date string
-    Time(String),          // ISO-8601 time string
+    Date(String), // ISO-8601 date string
+    Time(String), // ISO-8601 time string
     Timestamp(DateTime<Utc>),
     Json(serde_json::Value),
     Uuid(Uuid),
@@ -138,7 +138,10 @@ impl Value {
             Self::Timestamp(t) => t.to_rfc3339(),
             Self::Json(j) => j.to_string(),
             Self::Uuid(u) => u.to_string(),
-            Self::Array(a) => format!("[{}]", a.iter().map(Self::display).collect::<Vec<_>>().join(", ")),
+            Self::Array(a) => format!(
+                "[{}]",
+                a.iter().map(Self::display).collect::<Vec<_>>().join(", ")
+            ),
             Self::Object(o) => serde_json::to_string(o).unwrap_or_else(|_| "{}".into()),
         }
     }

@@ -116,10 +116,7 @@ impl CatalystError {
     /// Returns `true` if the error is likely transient (worth retrying).
     #[must_use]
     pub fn is_transient(&self) -> bool {
-        matches!(
-            self,
-            Self::ConnectionLost { .. } | Self::Timeout { .. }
-        )
+        matches!(self, Self::ConnectionLost { .. } | Self::Timeout { .. })
     }
 
     /// Returns `true` if the error is a security-related violation.

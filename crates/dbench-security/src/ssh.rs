@@ -73,7 +73,9 @@ pub struct SshTunnelConfig {
     pub remote_port: u16,
 }
 
-const fn default_ssh_port() -> u16 { 22 }
+const fn default_ssh_port() -> u16 {
+    22
+}
 
 // ---------------------------------------------------------------------------
 // Active tunnel handle
@@ -132,22 +134,24 @@ impl SshTunnel {
 
         let ssh_host = config.ssh_host.clone();
         let ssh_port = config.ssh_port;
-        let child = spawn_ssh(&config, local_port)
-            .map_err(|e| SshError::ConnectionFailed {
-                host: ssh_host,
-                port: ssh_port,
-                reason: e.to_string(),
-            })?;
+        let child = spawn_ssh(&config, local_port).map_err(|e| SshError::ConnectionFailed {
+            host: ssh_host,
+            port: ssh_port,
+            reason: e.to_string(),
+        })?;
 
         let local_addr: SocketAddr = format!("127.0.0.1:{local_port}")
             .parse()
             .expect("valid addr");
 
-        let tunnel = Self { local_addr, _inner: SshTunnelInner { child } };
+        let tunnel = Self {
+            local_addr,
+            _inner: SshTunnelInner { child },
+        };
 
         wait_for_port(local_port)
             .await
-            .map_err(|e| SshError::PortForward(e))?;
+            .map_err(SshError::PortForward)?;
 
         tracing::info!(local_addr = %tunnel.local_addr, "SSH tunnel ready");
         Ok(tunnel)
@@ -155,11 +159,15 @@ impl SshTunnel {
 
     /// Returns `"127.0.0.1"` — the host string to pass to the database driver.
     #[must_use]
-    pub fn local_host(&self) -> &str { "127.0.0.1" }
+    pub fn local_host(&self) -> &str {
+        "127.0.0.1"
+    }
 
     /// Returns the local port to pass to the database driver.
     #[must_use]
-    pub fn local_port(&self) -> u16 { self.local_addr.port() }
+    pub fn local_port(&self) -> u16 {
+        self.local_addr.port()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -173,15 +181,10 @@ fn which_ssh() -> std::result::Result<(), String> {
         .stderr(std::process::Stdio::null())
         .status()
         .map(|_| ())
-        .map_err(|_| {
-            "ssh binary not found in PATH. Install OpenSSH to use SSH tunnels.".into()
-        })
+        .map_err(|_| "ssh binary not found in PATH. Install OpenSSH to use SSH tunnels.".into())
 }
 
-fn spawn_ssh(
-    config: &SshTunnelConfig,
-    local_port: u16,
-) -> std::io::Result<std::process::Child> {
+fn spawn_ssh(config: &SshTunnelConfig, local_port: u16) -> std::io::Result<std::process::Child> {
     let forward = format!(
         "127.0.0.1:{local_port}:{}:{}",
         config.remote_host, config.remote_port
@@ -190,13 +193,20 @@ fn spawn_ssh(
     let mut cmd = std::process::Command::new("ssh");
     cmd.args([
         "-N",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "BatchMode=yes",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ServerAliveCountMax=3",
-        "-L", &forward,
-        "-p", &config.ssh_port.to_string(),
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-L",
+        &forward,
+        "-p",
+        &config.ssh_port.to_string(),
     ]);
 
     match &config.auth {
@@ -217,8 +227,8 @@ fn spawn_ssh(
 
     cmd.arg(format!("{}@{}", config.ssh_username, config.ssh_host));
     cmd.stdin(std::process::Stdio::null())
-       .stdout(std::process::Stdio::null())
-       .stderr(std::process::Stdio::null());
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
 
     cmd.spawn()
 }

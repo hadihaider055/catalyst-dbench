@@ -5,7 +5,7 @@ Thank you for your interest in contributing! DBench is an ambitious open-source 
 ## Getting Started
 
 1. **Fork** the repository on GitHub
-2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/catalyst.git`
+2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/catalyst-dbench.git`
 3. **Install dependencies** (see README.md Build from Source)
 4. **Create a branch**: `git checkout -b feat/your-feature-name`
 5. **Make changes**, write tests
@@ -38,4 +38,4 @@ See [CLAUDE.md](CLAUDE.md#adding-a-new-database-driver) for the step-by-step gui
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/dbench-io/dbench/discussions) for questions and ideas.
+Open a [GitHub Discussion](https://github.com/hadihaider055/catalyst-dbench/discussions) for questions and ideas.

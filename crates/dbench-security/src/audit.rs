@@ -9,11 +9,7 @@
 //! {"ts":"2026-01-15T10:23:41Z","event":"query.execute","conn_id":"pg-prod","query_hash":"sha256:abc","rows":142,"duration_ms":23,"prev_hash":"sha256:000","hash":"sha256:abc123"}
 //! ```
 
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{io::Write, path::Path, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -118,8 +114,9 @@ struct AuditEntry {
     event: AuditEvent,
     /// System username of the operator.
     user: String,
-    /// Hostname of the machine.
-    host: String,
+    /// Hostname of the machine. Not named `host`: that would collide with the
+    /// flattened `ConnectionOpened.host` and emit duplicate JSON keys.
+    machine: String,
     /// SHA-256 of the previous entry (hex). Enables tamper detection.
     prev_hash: String,
     /// SHA-256 of this entry's content (excluding this field).
@@ -137,7 +134,6 @@ pub struct AuditLogger {
 }
 
 struct AuditLoggerInner {
-    path: PathBuf,
     file: std::fs::File,
     last_hash: String,
     user: String,
@@ -178,7 +174,6 @@ impl AuditLogger {
 
         Ok(Self {
             inner: Arc::new(Mutex::new(AuditLoggerInner {
-                path,
                 file,
                 last_hash,
                 user,
@@ -218,7 +213,7 @@ impl AuditLoggerInner {
             "id": id,
             "event": &event,
             "user": &self.user,
-            "host": &self.host,
+            "machine": &self.host,
             "prev_hash": &self.last_hash,
         });
         let content_str =
@@ -230,7 +225,7 @@ impl AuditLoggerInner {
             id,
             event,
             user: self.user.clone(),
-            host: self.host.clone(),
+            machine: self.host.clone(),
             prev_hash: self.last_hash.clone(),
             hash: hash.clone(),
         };
@@ -279,10 +274,42 @@ pub fn verify_audit_log(path: impl AsRef<Path>) -> std::result::Result<usize, St
             ));
         }
 
-        prev_hash = entry["hash"]
+        let stored_hash = entry["hash"]
             .as_str()
             .ok_or_else(|| format!("Entry {i}: missing hash"))?
             .to_owned();
+
+        // Re-derive the hashed content exactly as `write_entry` built it: the event is
+        // flattened into the entry, so every non-metadata key belongs to the event.
+        let obj = entry
+            .as_object()
+            .ok_or_else(|| format!("Entry {i}: not an object"))?;
+        let event: serde_json::Map<String, serde_json::Value> = obj
+            .iter()
+            .filter(|(k, _)| {
+                !matches!(
+                    k.as_str(),
+                    "ts" | "id" | "user" | "machine" | "prev_hash" | "hash"
+                )
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let content = serde_json::json!({
+            "ts": entry["ts"],
+            "id": entry["id"],
+            "event": event,
+            "user": entry["user"],
+            "machine": entry["machine"],
+            "prev_hash": stored_prev,
+        });
+        let content_str = serde_json::to_string(&content).map_err(|e| e.to_string())?;
+        if format!("sha256:{}", sha256_hex(content_str.as_bytes())) != stored_hash {
+            return Err(format!(
+                "Entry {i}: content hash mismatch — entry was modified"
+            ));
+        }
+
+        prev_hash = stored_hash;
 
         count += 1;
     }
@@ -334,9 +361,10 @@ mod tests {
 
         logger.log(AuditEvent::AppStopped).await.unwrap();
 
-        // Tamper: overwrite file with modified content
+        // Tamper: change the event but keep the hash chain fields intact.
         let content = std::fs::read_to_string(tmp.path()).unwrap();
-        let tampered = content.replace("AppStopped", "QueryExecute");
+        let tampered = content.replace("app_stopped", "app_started");
+        assert_ne!(content, tampered, "tamper must actually change the log");
         std::fs::write(tmp.path(), tampered).unwrap();
 
         assert!(verify_audit_log(tmp.path()).is_err());

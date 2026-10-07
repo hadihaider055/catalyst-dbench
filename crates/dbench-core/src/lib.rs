@@ -19,6 +19,7 @@
 pub mod connection;
 pub mod driver;
 pub mod error;
+pub mod guard;
 pub mod query;
 pub mod result;
 pub mod schema;
@@ -30,9 +31,7 @@ pub use driver::{ConnectionConfig, Driver};
 pub use error::CatalystError;
 pub use query::{Query, QueryParam};
 pub use result::{Column, ColumnType, QueryResult, Row, Value};
-pub use schema::{
-    ColumnSchema, DatabaseSchema, IndexSchema, SchemaObject, TableSchema,
-};
+pub use schema::{ColumnSchema, DatabaseSchema, IndexSchema, SchemaObject, TableSchema};
 pub use types::{ConnectionInfo, ConnectionMode, DatabaseType};
 
 /// Convenience result type for dbench-core operations.

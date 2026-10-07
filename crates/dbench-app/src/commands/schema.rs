@@ -1,6 +1,11 @@
 //! Tauri commands for schema introspection.
 
-use dbench_core::{query::Query, schema::DatabaseSchema, Value};
+use dbench_core::{
+    guard::{quote_ident, quote_literal},
+    query::Query,
+    schema::DatabaseSchema,
+    Value,
+};
 use tauri::State;
 use uuid::Uuid;
 
@@ -32,25 +37,34 @@ pub async fn get_object_ddl(
 ) -> Result<String, String> {
     let conn_id = Uuid::parse_str(&connection_id).map_err(|e| e.to_string())?;
 
+    // Display name only — never spliced into SQL. Every value that reaches SQL below
+    // goes through quote_literal / quote_ident, so hostile object names can't inject.
     let fqn = match &schema_name {
         Some(s) if !s.is_empty() => format!("{}.{}", s, object_name),
         _ => object_name.clone(),
     };
+    let obj = quote_literal(&object_name);
 
     let ddl_sql: String = match db_type.as_str() {
-        "mysql" => format!("SHOW CREATE TABLE `{}`;", fqn),
-        "clickhouse" => format!("SHOW CREATE TABLE {};", fqn),
+        "mysql" | "clickhouse" => {
+            let q = |s: &str| quote_ident(s, '`');
+            match &schema_name {
+                Some(sc) if !sc.is_empty() => {
+                    format!("SHOW CREATE TABLE {}.{};", q(sc), q(&object_name))
+                }
+                _ => format!("SHOW CREATE TABLE {};", q(&object_name)),
+            }
+        }
         "sqlite" => format!(
-            "SELECT sql FROM sqlite_master WHERE (type='table' OR type='view') AND name='{}';",
-            object_name
+            "SELECT sql FROM sqlite_master WHERE (type='table' OR type='view') AND name={obj};"
         ),
         "cassandra" => {
             // Construct DDL from system_schema
             let ks = schema_name.as_deref().unwrap_or("system");
             format!(
                 "SELECT column_name, type, kind FROM system_schema.columns \
-                 WHERE keyspace_name='{}' AND table_name='{}';",
-                ks, object_name
+                 WHERE keyspace_name={} AND table_name={obj};",
+                quote_literal(ks)
             )
         }
         "postgres" | "cockroachdb" => {
@@ -58,15 +72,16 @@ pub async fn get_object_ddl(
             let obj_kind = if kind == "view" { "view" } else { "table" };
             if obj_kind == "view" {
                 format!(
-                    "SELECT 'CREATE OR REPLACE VIEW {fqn} AS' || chr(10) || view_definition \
+                    "SELECT 'CREATE OR REPLACE VIEW ' || quote_ident(table_schema) || '.' || quote_ident(table_name) \
+                     || ' AS' || chr(10) || view_definition \
                      FROM information_schema.views \
-                     WHERE table_schema='{}' AND table_name='{}';",
-                    schema, object_name
+                     WHERE table_schema={} AND table_name={obj};",
+                    quote_literal(schema)
                 )
             } else {
                 // Build CREATE TABLE from information_schema columns
                 format!(
-                    "SELECT 'CREATE TABLE {fqn} (' || chr(10) || \
+                    "SELECT 'CREATE TABLE ' || quote_ident(table_schema) || '.' || quote_ident(table_name) || ' (' || chr(10) || \
                      string_agg('  ' || column_name || ' ' || udt_name || \
                        CASE WHEN character_maximum_length IS NOT NULL \
                             THEN '(' || character_maximum_length || ')' ELSE '' END || \
@@ -74,9 +89,9 @@ pub async fn get_object_ddl(
                        ',' || chr(10) ORDER BY ordinal_position) || \
                      chr(10) || ');' \
                      FROM information_schema.columns \
-                     WHERE table_schema='{}' AND table_name='{}' \
-                     GROUP BY table_name;",
-                    schema, object_name
+                     WHERE table_schema={} AND table_name={obj} \
+                     GROUP BY table_schema, table_name;",
+                    quote_literal(schema)
                 )
             }
         }
@@ -94,13 +109,22 @@ pub async fn get_object_ddl(
     // For Cassandra, synthesize DDL from column rows
     if db_type == "cassandra" {
         let ks = schema_name.as_deref().unwrap_or("system");
-        let mut parts: Vec<String> = vec![format!(
-            "CREATE TABLE {}.{} (",
-            ks, object_name
-        )];
-        let col_idx = result.columns.iter().position(|c| c.name == "column_name").unwrap_or(0);
-        let type_idx = result.columns.iter().position(|c| c.name == "type").unwrap_or(1);
-        let kind_idx = result.columns.iter().position(|c| c.name == "kind").unwrap_or(2);
+        let mut parts: Vec<String> = vec![format!("CREATE TABLE {}.{} (", ks, object_name)];
+        let col_idx = result
+            .columns
+            .iter()
+            .position(|c| c.name == "column_name")
+            .unwrap_or(0);
+        let type_idx = result
+            .columns
+            .iter()
+            .position(|c| c.name == "type")
+            .unwrap_or(1);
+        let kind_idx = result
+            .columns
+            .iter()
+            .position(|c| c.name == "kind")
+            .unwrap_or(2);
         let mut cols: Vec<String> = Vec::new();
         let mut pk_cols: Vec<String> = Vec::new();
         for row in &result.rows {

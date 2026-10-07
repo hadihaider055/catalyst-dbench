@@ -85,11 +85,9 @@ impl KeychainStore {
             .map_err(|e| KeychainError::Backend(e.to_string()))?;
 
         let password = entry.get_password().map_err(|e| match e {
-            keyring::Error::NoEntry => {
-                KeychainError::NotFound {
-                    key: self.account.clone(),
-                }
-            }
+            keyring::Error::NoEntry => KeychainError::NotFound {
+                key: self.account.clone(),
+            },
             _ => KeychainError::Backend(e.to_string()),
         })?;
 
@@ -163,7 +161,6 @@ impl EphemeralSecret {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use secrecy::Secret;
 
     #[test]
     fn keychain_store_key_format() {

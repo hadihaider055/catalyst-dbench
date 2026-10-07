@@ -6,15 +6,11 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use dbench_core::{
-    connection::Connection,
-    query::Query,
-    result::QueryResult,
-    schema::DatabaseSchema,
-    types::ConnectionInfo,
-    CatalystError, Result,
-};
 use dashmap::DashMap;
+use dbench_core::{
+    connection::Connection, query::Query, result::QueryResult, schema::DatabaseSchema,
+    types::ConnectionInfo, CatalystError, Result,
+};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -54,8 +50,12 @@ impl<C> DynConnection for ConnectionAdapter<C>
 where
     C: Connection + Send + Sync + 'static,
 {
-    fn info(&self) -> &ConnectionInfo { self.0.info() }
-    fn is_alive(&self) -> bool { self.0.is_alive() }
+    fn info(&self) -> &ConnectionInfo {
+        self.0.info()
+    }
+    fn is_alive(&self) -> bool {
+        self.0.is_alive()
+    }
 
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         self.0.execute(query).await
@@ -104,6 +104,17 @@ impl ConnectionRegistry {
         id
     }
 
+    /// Register an already type-erased connection with its (possibly app-adjusted,
+    /// e.g. SSH-tunnel) metadata. Returns the connection UUID.
+    pub fn register_boxed(&self, conn: BoxConnection, info: ConnectionInfo) -> Uuid {
+        let id = info.id;
+        self.infos.insert(id, info);
+        self.connections
+            .insert(id, Arc::new(tokio::sync::Mutex::new(conn)));
+        tracing::debug!(conn_id = %id, "Connection registered");
+        id
+    }
+
     /// Remove a connection by ID.
     pub fn remove(&self, id: Uuid) -> Result<()> {
         self.connections
@@ -128,9 +139,13 @@ impl ConnectionRegistry {
 
     /// Return the number of active connections.
     #[must_use]
-    pub fn len(&self) -> usize { self.connections.len() }
+    pub fn len(&self) -> usize {
+        self.connections.len()
+    }
 
     /// Return `true` if there are no active connections.
     #[must_use]
-    pub fn is_empty(&self) -> bool { self.connections.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.connections.is_empty()
+    }
 }

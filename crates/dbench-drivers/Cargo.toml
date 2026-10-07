@@ -1,6 +1,6 @@
 [package]
 name = "dbench-drivers"
-description = "Database driver implementations for DBench — PostgreSQL, MySQL, SQLite, MongoDB, Redis, ClickHouse"
+description = "Database driver implementations for DBench"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,14 +9,19 @@ repository.workspace = true
 
 [features]
 default = ["postgres", "sqlite"]
-postgres = ["dep:tokio-postgres", "dep:postgres-types"]
+postgres = ["dep:tokio-postgres", "dep:postgres-types", "dep:postgres-native-tls", "dep:native-tls"]
 mysql = ["dep:sqlx"]
 sqlite = ["dep:rusqlite"]
 mongodb = ["dep:mongodb", "dep:futures-util"]
 redis = ["dep:redis"]
 clickhouse = ["dep:reqwest"]
 cassandra = ["dep:scylla"]
-all = ["postgres", "mysql", "sqlite", "mongodb", "redis", "clickhouse", "cassandra"]
+mssql = ["dep:tiberius", "dep:tokio-util", "dep:futures-util"]
+elasticsearch = ["dep:reqwest"]
+surrealdb = ["dep:reqwest"]
+oracle = ["dep:oracle"]
+dynamodb = ["dep:aws-config", "dep:aws-sdk-dynamodb", "dep:reqwest"]
+all = ["postgres", "mysql", "sqlite", "mongodb", "redis", "clickhouse", "cassandra", "mssql", "elasticsearch", "surrealdb", "oracle", "dynamodb"]
 
 [dependencies]
 dbench-core = { workspace = true }
@@ -35,6 +40,8 @@ chrono = { workspace = true }
 # PostgreSQL
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"], optional = true }
 postgres-types = { version = "0.2", features = ["derive"], optional = true }
+postgres-native-tls = { version = "0.5", optional = true }
+native-tls = { version = "0.2", optional = true }
 
 # SQLite
 rusqlite = { version = "0.31", features = ["bundled", "chrono", "uuid", "column_decltype"], optional = true }
@@ -51,6 +58,17 @@ redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], opt
 
 # ClickHouse (HTTP interface)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }
+
+# SQL Server / Azure SQL (TDS, rustls)
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "chrono"], optional = true }
+tokio-util = { version = "0.7", features = ["compat"], optional = true }
+
+# Oracle (ODPI-C; Instant Client is loaded at runtime, not needed to build)
+oracle = { version = "0.6", features = ["chrono"], optional = true }
+
+# DynamoDB (official AWS SDK)
+aws-config = { version = "1", features = ["behavior-version-latest"], optional = true }
+aws-sdk-dynamodb = { version = "1", optional = true }
 
 # Cassandra / ScyllaDB (native CQL protocol)
 scylla = { version = "0.13", optional = true }

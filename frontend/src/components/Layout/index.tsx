@@ -202,7 +202,7 @@ export default function Layout() {
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeConn = activeConnections.find((c) => c.id === activeTab?.connection_id);
-  const SQL_DB_TYPES = new Set(["postgres", "mysql", "sqlite", "cockroachdb", "mssql", "oracle", "clickhouse", "cassandra"]);
+  const SQL_DB_TYPES = new Set(["postgres", "mysql", "sqlite", "cockroachdb", "mssql", "oracle", "clickhouse", "cassandra", "surrealdb", "dynamodb", "elasticsearch"]);
   const isSqlActive = activeConn ? SQL_DB_TYPES.has(activeConn.db_type) : false;
 
   // Apply theme synchronously on every render to avoid flash

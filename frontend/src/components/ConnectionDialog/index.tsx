@@ -15,9 +15,77 @@ const SUPPORTED: DatabaseType[] = [
   "cockroachdb",
   "clickhouse",
   "cassandra",
+  "mssql",
+  "oracle",
+  "dynamodb",
+  "elasticsearch",
+  "surrealdb",
 ];
 
+// Per-type field labels where the generic Host / Database / Username / Password don't fit.
+const FIELDS: Partial<Record<DatabaseType, { host?: string; hostPh?: string; db?: string; dbPh?: string; user?: string; userPh?: string; pass?: string }>> = {
+  redis: { db: "Key prefix / DB index", dbPh: "0" },
+  mssql: { dbPh: "master", userPh: "sa" },
+  oracle: { db: "Service name", dbPh: "FREEPDB1", userPh: "system" },
+  elasticsearch: { db: "Index pattern", dbPh: "logs-* (optional)", user: "Username", userPh: "empty = API key", pass: "Password / API key" },
+  surrealdb: { db: "Namespace / Database", dbPh: "test/test" },
+  dynamodb: {
+    host: "Region or endpoint URL",
+    hostPh: "us-east-1 or http://localhost:8000",
+    db: "Region (only with endpoint URL)",
+    dbPh: "us-east-1",
+    user: "Access key ID",
+    userPh: "empty = AWS profile / env",
+    pass: "Secret access key",
+  },
+};
+
 const URI_CAPABLE: DatabaseType[] = ["mongodb", "postgres", "mysql", "redis"];
+
+// Wire-compatible databases and managed services, served by an existing driver.
+const PRESETS: { label: string; db_type: DatabaseType; port: number; tls: boolean }[] = [
+  { label: "Amazon Aurora PostgreSQL", db_type: "postgres", port: 5432, tls: true },
+  { label: "Amazon Aurora MySQL", db_type: "mysql", port: 3306, tls: true },
+  { label: "Amazon Aurora DSQL", db_type: "postgres", port: 5432, tls: true },
+  { label: "Amazon RDS PostgreSQL", db_type: "postgres", port: 5432, tls: true },
+  { label: "Amazon RDS MySQL / MariaDB", db_type: "mysql", port: 3306, tls: true },
+  { label: "Amazon Redshift", db_type: "postgres", port: 5439, tls: true },
+  { label: "Amazon DocumentDB", db_type: "mongodb", port: 27017, tls: true },
+  { label: "Amazon ElastiCache / MemoryDB", db_type: "redis", port: 6379, tls: true },
+  { label: "Google Cloud SQL PostgreSQL", db_type: "postgres", port: 5432, tls: true },
+  { label: "Google AlloyDB", db_type: "postgres", port: 5432, tls: true },
+  { label: "Google Cloud SQL MySQL", db_type: "mysql", port: 3306, tls: true },
+  { label: "Azure Database for PostgreSQL", db_type: "postgres", port: 5432, tls: true },
+  { label: "Azure Database for MySQL", db_type: "mysql", port: 3306, tls: true },
+  { label: "Azure Cosmos DB (MongoDB API)", db_type: "mongodb", port: 10255, tls: true },
+  { label: "Azure Cache for Redis", db_type: "redis", port: 6380, tls: true },
+  { label: "Supabase", db_type: "postgres", port: 5432, tls: true },
+  { label: "Neon", db_type: "postgres", port: 5432, tls: true },
+  { label: "Timescale", db_type: "postgres", port: 5432, tls: true },
+  { label: "YugabyteDB", db_type: "postgres", port: 5433, tls: false },
+  { label: "CockroachDB Cloud", db_type: "cockroachdb", port: 26257, tls: true },
+  { label: "MariaDB", db_type: "mysql", port: 3306, tls: false },
+  { label: "PlanetScale", db_type: "mysql", port: 3306, tls: true },
+  { label: "TiDB", db_type: "mysql", port: 4000, tls: false },
+  { label: "SingleStore", db_type: "mysql", port: 3306, tls: false },
+  { label: "MongoDB Atlas", db_type: "mongodb", port: 27017, tls: true },
+  { label: "FerretDB", db_type: "mongodb", port: 27017, tls: false },
+  { label: "Valkey", db_type: "redis", port: 6379, tls: false },
+  { label: "Dragonfly", db_type: "redis", port: 6379, tls: false },
+  { label: "KeyDB", db_type: "redis", port: 6379, tls: false },
+  { label: "Upstash Redis", db_type: "redis", port: 6379, tls: true },
+  { label: "ScyllaDB", db_type: "cassandra", port: 9042, tls: false },
+  { label: "ClickHouse Cloud", db_type: "clickhouse", port: 8443, tls: true },
+  { label: "Azure SQL Database", db_type: "mssql", port: 1433, tls: true },
+  { label: "Amazon RDS SQL Server", db_type: "mssql", port: 1433, tls: true },
+  { label: "Amazon RDS Oracle", db_type: "oracle", port: 1521, tls: false },
+  { label: "Oracle Autonomous DB (TCPS)", db_type: "oracle", port: 1522, tls: true },
+  { label: "Amazon OpenSearch Service", db_type: "elasticsearch", port: 443, tls: true },
+  { label: "Elastic Cloud", db_type: "elasticsearch", port: 443, tls: true },
+  { label: "OpenSearch", db_type: "elasticsearch", port: 9200, tls: false },
+  { label: "SurrealDB Cloud", db_type: "surrealdb", port: 443, tls: true },
+  { label: "DynamoDB Local", db_type: "dynamodb", port: 8000, tls: false },
+];
 
 interface Props {
   onClose: () => void;
@@ -42,6 +110,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
   const [useUri, setUseUri] = useState(false);
 
   const [tls, setTls] = useState(existing?.tls_enabled ?? false);
+  const [tlsCaPath, setTlsCaPath] = useState(existing?.tls_ca_path ?? "");
   const [readOnly, setReadOnly] = useState(existing?.read_only ?? false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -67,6 +136,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
   const handleDbTypeChange = (t: DatabaseType) => {
     setDbType(t);
     setPort(String(DB_DEFAULTS[t] ?? ""));
+    if (t === "dynamodb" && host === "localhost") setHost("us-east-1");
     setUseUri(false);
     setTestResult(null);
   };
@@ -98,6 +168,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
         username: "",
         password: password || undefined,
         tls_enabled: tls,
+        tls_ca_path: tls && tlsCaPath ? tlsCaPath : undefined,
         read_only: readOnly,
         ...sshFields,
       };
@@ -111,6 +182,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
       username,
       password: password || undefined,
       tls_enabled: tls,
+      tls_ca_path: tls && tlsCaPath ? tlsCaPath : undefined,
       read_only: readOnly,
       ...sshFields,
     };
@@ -146,6 +218,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
           database,
           username,
           tls_enabled: tls,
+          tls_ca_path: tls && tlsCaPath ? tlsCaPath : undefined,
           read_only: readOnly,
           ...sshFields,
         };
@@ -173,6 +246,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
       database,
       username,
       tls_enabled: tls,
+      tls_ca_path: tls && tlsCaPath ? tlsCaPath : undefined,
       read_only: readOnly,
       ...sshFields,
     };
@@ -219,6 +293,25 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                 </button>
               ))}
             </div>
+            <select
+              className="mt-2 w-full bg-surface border border-surface-border rounded px-2 py-1.5 text-xs text-text-secondary focus:outline-none focus:border-accent"
+              value=""
+              onChange={(e) => {
+                const p = PRESETS[Number(e.target.value)];
+                if (!p) return;
+                handleDbTypeChange(p.db_type);
+                setPort(String(p.port));
+                setTls(p.tls);
+                if (!name) setName(p.label);
+              }}
+            >
+              <option value="">Cloud / compatible service preset (Aurora, RDS, Supabase, …)</option>
+              {PRESETS.map((p, i) => (
+                <option key={p.label} value={i}>
+                  {p.label} — {DB_LABELS[p.db_type]}
+                </option>
+              ))}
+            </select>
           </div>
 
           <Field label="Connection Name" hint="Display name">
@@ -291,11 +384,11 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                 <>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
-                      <Field label="Host">
+                      <Field label={FIELDS[dbType]?.host ?? "Host"}>
                         <Input
                           value={host}
                           onChange={handleHostChange}
-                          placeholder="localhost"
+                          placeholder={FIELDS[dbType]?.hostPh ?? "localhost"}
                         />
                       </Field>
                     </div>
@@ -309,23 +402,23 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                     </Field>
                   </div>
 
-                  <Field label={dbType === "redis" ? "Key prefix / DB index" : "Database"}>
+                  <Field label={FIELDS[dbType]?.db ?? "Database"}>
                     <Input
                       value={database}
                       onChange={setDatabase}
-                      placeholder={dbType === "redis" ? "0" : "mydb"}
+                      placeholder={FIELDS[dbType]?.dbPh ?? "mydb"}
                     />
                   </Field>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Username">
+                    <Field label={FIELDS[dbType]?.user ?? "Username"}>
                       <Input
                         value={username}
                         onChange={setUsername}
-                        placeholder={dbType === "postgres" ? "postgres" : "root"}
+                        placeholder={FIELDS[dbType]?.userPh ?? (dbType === "postgres" ? "postgres" : "root")}
                       />
                     </Field>
-                    <Field label="Password">
+                    <Field label={FIELDS[dbType]?.pass ?? "Password"}>
                       <div className="relative">
                         <Input
                           value={password}
@@ -368,6 +461,12 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                   <span className="text-xs text-text-secondary">Read-only mode</span>
                 </label>
               </div>
+
+              {tls && (
+                <Field label="CA certificate (optional)" hint="PEM bundle, e.g. AWS RDS global-bundle.pem for Aurora/RDS">
+                  <Input value={tlsCaPath} onChange={setTlsCaPath} placeholder="/path/to/global-bundle.pem" />
+                </Field>
+              )}
 
               {/* SSH Tunnel */}
               <div className="border border-surface-border rounded">

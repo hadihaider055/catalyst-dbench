@@ -7,7 +7,7 @@
 - **Stack**: Rust (workspace), Tauri v2, React 19 + TypeScript, Monaco Editor
 - **Goal**: Universal database IDE — fast, clean, open source
 - **License**: MIT OR Apache-2.0
-- **Status**: Milestones 0–4 complete. Features: SSH tunnel, ER diagram, multi-DB switcher, CSV/JSON import, visual explain plan, all 6 drivers.
+- **Status**: Milestones 0–4 complete. Features: SSH tunnel, ER diagram, multi-DB switcher, CSV/JSON import, visual explain plan, 13 drivers (SQL Server, Oracle, DynamoDB, Elasticsearch/OpenSearch, SurrealDB are beta).
 
 ## Repository Structure
 
@@ -66,12 +66,22 @@ Houses all database driver implementations as modules. Each driver implements th
 - `src/sqlite/` — SQLite via `rusqlite`
 - `src/mongodb/` — MongoDB via official `mongodb` v2 crate
 - `src/redis/` — Redis via `redis` v0.25
-- `src/clickhouse/` — ClickHouse via HTTP API (port 8123, JSONCompact format)
+- `src/clickhouse/` — ClickHouse via HTTP API (port 8123, JSONCompact format; read-only via `readonly=1`)
+- `src/cassandra/` — Cassandra / ScyllaDB via `scylla`
+- `src/mssql/` — SQL Server / Azure SQL via `tiberius` (rustls, follows Azure redirects)
+- `src/oracle/` — Oracle via `oracle` crate (ODPI-C; Instant Client loaded at runtime, sync API on `spawn_blocking`)
+- `src/dynamodb/` — DynamoDB via AWS SDK, PartiQL `ExecuteStatement` (AWS crates pinned in Cargo.lock for rustc 1.92)
+- `src/elasticsearch/` — Elasticsearch / OpenSearch over REST (SQL or `METHOD /path` console syntax)
+- `src/surrealdb/` — SurrealDB over HTTP `/sql` (database field = `namespace/database`)
+- `src/http.rs`, `src/sqlmeta.rs` — shared helpers (HTTP client/JSON→grid; catalog rows→tables)
 
 **Critical driver notes:**
 - MySQL `information_schema`: use `CAST(col AS CHAR)` — columns return as BLOB otherwise
 - MongoDB v2: all collection/db methods require explicit `None` second arg (`find(filter, None)`, `aggregate(pipeline, None)`, etc.)
 - Redis v0.25: `Value` enum variants are `Nil`, `Int(i64)`, `Data(Vec<u8>)`, `Bulk(Vec<Value>)`, `Status(String)`, `Okay` — NOT the newer `BulkString`/`Array` names
+- Read-only mode: always call `dbench_core::guard::is_sql_write` (comment/string-aware), never a prefix check
+- SQL built from names/values must use `guard::quote_literal` / `quote_ident`
+- Config structs: derive `ConnectionConfig` but NOT `Debug` — the macro generates a redacting `Debug`
 
 ### `dbench-engine`
 Higher-level runtime on top of drivers.

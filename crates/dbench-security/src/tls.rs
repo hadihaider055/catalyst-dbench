@@ -14,9 +14,11 @@ use crate::{Result, SecurityError};
 /// TLS policy for a database connection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TlsMode {
     /// TLS is required. Connection fails if server doesn't support TLS.
     /// Server certificate is validated against trusted CAs. (default)
+    #[default]
     Required,
     /// TLS is used if the server supports it; connection proceeds without it otherwise.
     /// This is INSECURE for production. A warning is shown in the UI.
@@ -27,12 +29,6 @@ pub enum TlsMode {
     /// TLS is required AND the server certificate is pinned.
     /// Strongest option — use for production databases.
     Pinned { fingerprint: String },
-}
-
-impl Default for TlsMode {
-    fn default() -> Self {
-        Self::Required
-    }
 }
 
 impl TlsMode {

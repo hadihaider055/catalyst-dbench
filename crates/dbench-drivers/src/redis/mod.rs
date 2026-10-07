@@ -16,10 +16,7 @@ use dbench_core::{
     Result,
 };
 use dbench_macros::ConnectionConfig;
-use redis::{
-    aio::ConnectionManager,
-    Client, RedisResult, Value as RedisValue,
-};
+use redis::{aio::ConnectionManager, Client, RedisResult, Value as RedisValue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,7 +25,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Configuration for connecting to Redis.
-#[derive(ConnectionConfig, Debug, Clone, Serialize, Deserialize)]
+#[derive(ConnectionConfig, Clone, Serialize, Deserialize)]
 pub struct RedisConfig {
     /// Redis hostname.
     #[config(required)]
@@ -74,9 +71,15 @@ impl Driver for RedisDriver {
     type Connection = RedisConnection;
     type Config = RedisConfig;
 
-    fn name(&self) -> &'static str { "redis" }
-    fn database_type(&self) -> DatabaseType { DatabaseType::Redis }
-    fn default_port(&self) -> Option<u16> { Some(6379) }
+    fn name(&self) -> &'static str {
+        "redis"
+    }
+    fn database_type(&self) -> DatabaseType {
+        DatabaseType::Redis
+    }
+    fn default_port(&self) -> Option<u16> {
+        Some(6379)
+    }
 
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
         config.validate()?;
@@ -86,27 +89,38 @@ impl Driver for RedisDriver {
         // Build URL: redis://[user:pass@]host:port/db_index
         let url = match (&config.username, &config.password) {
             (Some(user), Some(pass)) => {
-                format!("{}://{}:{}@{}:{}/{}", scheme, user, pass, config.host, config.port, config.db_index)
+                format!(
+                    "{}://{}:{}@{}:{}/{}",
+                    scheme, user, pass, config.host, config.port, config.db_index
+                )
             }
             (None, Some(pass)) => {
-                format!("{}://:{}@{}:{}/{}", scheme, pass, config.host, config.port, config.db_index)
+                format!(
+                    "{}://:{}@{}:{}/{}",
+                    scheme, pass, config.host, config.port, config.db_index
+                )
             }
-            _ => format!("{}://{}:{}/{}", scheme, config.host, config.port, config.db_index),
+            _ => format!(
+                "{}://{}:{}/{}",
+                scheme, config.host, config.port, config.db_index
+            ),
         };
 
         tracing::info!(host = %config.host, port = config.port, db = config.db_index, "Connecting to Redis");
 
-        let client = Client::open(url.as_str())
-            .map_err(|e| CatalystError::connection_failed(DatabaseType::Redis, &config.host, e.to_string()))?;
+        let client = Client::open(url.as_str()).map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Redis, &config.host, e.to_string())
+        })?;
 
-        let manager = ConnectionManager::new(client)
-            .await
-            .map_err(|e| CatalystError::connection_failed(DatabaseType::Redis, &config.host, e.to_string()))?;
+        let manager = ConnectionManager::new(client).await.map_err(|e| {
+            CatalystError::connection_failed(DatabaseType::Redis, &config.host, e.to_string())
+        })?;
 
         // Fetch server version via INFO server.
         let server_version = {
             let mut mgr = manager.clone();
-            let info: RedisResult<String> = redis::cmd("INFO").arg("server").query_async(&mut mgr).await;
+            let info: RedisResult<String> =
+                redis::cmd("INFO").arg("server").query_async(&mut mgr).await;
             info.ok().and_then(|s| {
                 s.lines()
                     .find(|l| l.starts_with("redis_version:"))
@@ -152,20 +166,59 @@ pub struct RedisConnection {
 
 /// Read-only commands — everything else is a potential write.
 const READ_COMMANDS: &[&str] = &[
-    "GET", "MGET", "GETRANGE", "STRLEN",
-    "HGET", "HMGET", "HGETALL", "HKEYS", "HVALS", "HLEN", "HEXISTS",
-    "LRANGE", "LINDEX", "LLEN",
-    "SMEMBERS", "SCARD", "SISMEMBER", "SMISMEMBER", "SDIFF", "SINTER", "SUNION",
-    "ZRANGE", "ZRANGEBYSCORE", "ZREVRANGE", "ZCARD", "ZSCORE", "ZRANK", "ZCOUNT",
-    "EXISTS", "TYPE", "TTL", "PTTL", "KEYS", "SCAN", "HSCAN", "SSCAN", "ZSCAN",
-    "INFO", "PING", "DBSIZE", "TIME", "COMMAND", "CLIENT",
-    "OBJECT", "DEBUG",
+    "GET",
+    "MGET",
+    "GETRANGE",
+    "STRLEN",
+    "HGET",
+    "HMGET",
+    "HGETALL",
+    "HKEYS",
+    "HVALS",
+    "HLEN",
+    "HEXISTS",
+    "LRANGE",
+    "LINDEX",
+    "LLEN",
+    "SMEMBERS",
+    "SCARD",
+    "SISMEMBER",
+    "SMISMEMBER",
+    "SDIFF",
+    "SINTER",
+    "SUNION",
+    "ZRANGE",
+    "ZRANGEBYSCORE",
+    "ZREVRANGE",
+    "ZCARD",
+    "ZSCORE",
+    "ZRANK",
+    "ZCOUNT",
+    "EXISTS",
+    "TYPE",
+    "TTL",
+    "PTTL",
+    "KEYS",
+    "SCAN",
+    "HSCAN",
+    "SSCAN",
+    "ZSCAN",
+    "INFO",
+    "PING",
+    "DBSIZE",
+    "TIME",
+    "COMMAND",
+    "CLIENT",
+    "OBJECT",
+    "DEBUG",
 ];
 
 impl Connection for RedisConnection {
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         if !self.alive {
-            return Err(CatalystError::ConnectionLost { reason: "connection is closed".into() });
+            return Err(CatalystError::ConnectionLost {
+                reason: "connection is closed".into(),
+            });
         }
 
         // Parse "COMMAND arg1 arg2 ..." from query text.
@@ -200,7 +253,8 @@ impl Connection for RedisConnection {
 
     async fn inspect_schema(&mut self) -> Result<DatabaseSchema> {
         // Scan keys and group by prefix pattern (everything before the first ':').
-        let mut pattern_counts: std::collections::HashMap<String, (String, u64)> = std::collections::HashMap::new();
+        let mut pattern_counts: std::collections::HashMap<String, (String, u64)> =
+            std::collections::HashMap::new();
         let mut cursor: u64 = 0;
         let mut total_scanned = 0u64;
         const MAX_SCAN: u64 = 5000;
@@ -218,7 +272,9 @@ impl Connection for RedisConnection {
                 total_scanned += 1;
                 // Detect key type for the first occurrence of each pattern.
                 let pattern = key.split(':').next().unwrap_or(key).to_string();
-                let entry = pattern_counts.entry(pattern).or_insert(("string".into(), 0));
+                let entry = pattern_counts
+                    .entry(pattern)
+                    .or_insert(("string".into(), 0));
                 entry.1 += 1;
                 if entry.1 == 1 {
                     // Fetch type for the first key in this group.
@@ -252,7 +308,11 @@ impl Connection for RedisConnection {
         Ok(DatabaseSchema {
             name: format!("redis-db{}", self.info.database),
             db_type: DatabaseType::Redis,
-            server_version: self.info.server_version.clone().unwrap_or_else(|| "Redis".into()),
+            server_version: self
+                .info
+                .server_version
+                .clone()
+                .unwrap_or_else(|| "Redis".into()),
             objects,
         })
     }
@@ -268,9 +328,15 @@ impl Connection for RedisConnection {
         Ok(())
     }
 
-    fn is_alive(&self) -> bool { self.alive }
-    fn info(&self) -> &ConnectionInfo { &self.info }
-    fn mode(&self) -> ConnectionMode { self.mode }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+    fn mode(&self) -> ConnectionMode {
+        self.mode
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,24 +379,27 @@ fn redis_value_to_value(val: RedisValue) -> Value {
     match val {
         RedisValue::Nil => Value::Null,
         RedisValue::Int(i) => Value::Int(i),
-        RedisValue::Data(bytes) => {
-            String::from_utf8(bytes.clone())
-                .map(Value::Text)
-                .unwrap_or_else(|_| Value::Bytes(bytes))
-        }
+        RedisValue::Data(bytes) => String::from_utf8(bytes.clone())
+            .map(Value::Text)
+            .unwrap_or_else(|_| Value::Bytes(bytes)),
         RedisValue::Status(s) => Value::Text(s),
         RedisValue::Okay => Value::Text("OK".into()),
-        RedisValue::Bulk(arr) => {
-            Value::Array(arr.into_iter().map(redis_value_to_value).collect())
-        }
+        RedisValue::Bulk(arr) => Value::Array(arr.into_iter().map(redis_value_to_value).collect()),
     }
 }
 
 fn redis_value_to_result(cmd: &str, val: RedisValue, duration_ms: u64) -> QueryResult {
     match val {
         RedisValue::Nil => QueryResult {
-            columns: vec![Column { name: "result".into(), col_type: ColumnType::Text, nullable: true, native_type: "nil".into() }],
-            rows: vec![Row { values: vec![Value::Null] }],
+            columns: vec![Column {
+                name: "result".into(),
+                col_type: ColumnType::Text,
+                nullable: true,
+                native_type: "nil".into(),
+            }],
+            rows: vec![Row {
+                values: vec![Value::Null],
+            }],
             rows_affected: None,
             duration_ms,
             explain_plan: None,
@@ -338,22 +407,30 @@ fn redis_value_to_result(cmd: &str, val: RedisValue, duration_ms: u64) -> QueryR
         RedisValue::Bulk(ref items) if !items.is_empty() => {
             // HGETALL returns alternating key/value pairs.
             if cmd == "HGETALL" && items.len() % 2 == 0 {
-                let keys: Vec<String> = items.iter().step_by(2).map(|v: &RedisValue| {
-                    match v {
+                let keys: Vec<String> = items
+                    .iter()
+                    .step_by(2)
+                    .map(|v: &RedisValue| match v {
                         RedisValue::Data(b) => String::from_utf8_lossy(b).into_owned(),
                         RedisValue::Status(s) => s.clone(),
                         _ => format!("{v:?}"),
-                    }
-                }).collect();
-                let columns: Vec<Column> = keys.iter().map(|k: &String| Column {
-                    name: k.clone(),
-                    col_type: ColumnType::Text,
-                    nullable: true,
-                    native_type: "string".into(),
-                }).collect();
-                let values: Vec<Value> = items.iter().skip(1).step_by(2).map(|v: &RedisValue| {
-                    redis_value_to_value(v.clone())
-                }).collect();
+                    })
+                    .collect();
+                let columns: Vec<Column> = keys
+                    .iter()
+                    .map(|k: &String| Column {
+                        name: k.clone(),
+                        col_type: ColumnType::Text,
+                        nullable: true,
+                        native_type: "string".into(),
+                    })
+                    .collect();
+                let values: Vec<Value> = items
+                    .iter()
+                    .skip(1)
+                    .step_by(2)
+                    .map(|v: &RedisValue| redis_value_to_value(v.clone()))
+                    .collect();
                 return QueryResult {
                     columns,
                     rows: vec![Row { values }],
@@ -363,22 +440,46 @@ fn redis_value_to_result(cmd: &str, val: RedisValue, duration_ms: u64) -> QueryR
                 };
             }
             // Generic array — one row per element.
-            let columns = vec![Column { name: "value".into(), col_type: ColumnType::Text, nullable: true, native_type: "string".into() }];
-            let rows: Vec<Row> = items.iter().map(|item: &RedisValue| Row {
-                values: vec![redis_value_to_value(item.clone())],
-            }).collect();
-            QueryResult { columns, rows, rows_affected: None, duration_ms, explain_plan: None }
+            let columns = vec![Column {
+                name: "value".into(),
+                col_type: ColumnType::Text,
+                nullable: true,
+                native_type: "string".into(),
+            }];
+            let rows: Vec<Row> = items
+                .iter()
+                .map(|item: &RedisValue| Row {
+                    values: vec![redis_value_to_value(item.clone())],
+                })
+                .collect();
+            QueryResult {
+                columns,
+                rows,
+                rows_affected: None,
+                duration_ms,
+                explain_plan: None,
+            }
         }
         other => {
             let value = redis_value_to_value(other);
             let rows_affected = if cmd == "DEL" || cmd == "SET" || cmd == "HSET" {
-                match &value { Value::Int(n) => Some(*n as u64), _ => None }
+                match &value {
+                    Value::Int(n) => Some(*n as u64),
+                    _ => None,
+                }
             } else {
                 None
             };
             QueryResult {
-                columns: vec![Column { name: "result".into(), col_type: ColumnType::Text, nullable: true, native_type: "string".into() }],
-                rows: vec![Row { values: vec![value] }],
+                columns: vec![Column {
+                    name: "result".into(),
+                    col_type: ColumnType::Text,
+                    nullable: true,
+                    native_type: "string".into(),
+                }],
+                rows: vec![Row {
+                    values: vec![value],
+                }],
                 rows_affected,
                 duration_ms,
                 explain_plan: None,

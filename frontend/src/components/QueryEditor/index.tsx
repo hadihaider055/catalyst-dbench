@@ -44,6 +44,10 @@ function sqlFormatterLanguage(dbType: DatabaseType): SqlLanguage {
       return "mysql";
     case "sqlite":
       return "sqlite";
+    case "mssql":
+      return "transactsql";
+    case "oracle":
+      return "plsql";
     default:
       return "sql";
   }

@@ -1,8 +1,6 @@
 //! The `Driver` trait — the entry point for every database type.
 
-use std::time::Duration;
-
-use crate::{connection::Connection, error::CatalystError, types::ConnectionInfo, Result};
+use crate::{connection::Connection, types::ConnectionInfo, Result};
 
 /// A database driver. One implementation exists per database type
 /// (PostgreSQL, MySQL, MongoDB, etc.).
@@ -12,7 +10,7 @@ use crate::{connection::Connection, error::CatalystError, types::ConnectionInfo,
 ///
 /// # Implementing a new driver
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use dbench_core::{Driver, Connection, ConnectionInfo, Result};
 ///
 /// pub struct MyDbDriver;

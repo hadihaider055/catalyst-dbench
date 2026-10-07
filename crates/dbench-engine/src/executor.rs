@@ -3,11 +3,7 @@
 use std::sync::Arc;
 
 use dbench_core::{
-    error::CatalystError,
-    query::Query,
-    result::QueryResult,
-    schema::DatabaseSchema,
-    Result,
+    error::CatalystError, query::Query, result::QueryResult, schema::DatabaseSchema, Result,
 };
 use dbench_security::{
     audit::{AuditEvent, AuditLogger},
@@ -32,11 +28,12 @@ impl QueryExecutor {
 
     /// Execute a query on the connection identified by `conn_id`.
     pub async fn execute(&self, conn_id: Uuid, query: Query) -> Result<QueryResult> {
-        let conn_handle = self.registry.get(conn_id).ok_or_else(|| {
-            CatalystError::ConnectionLost {
-                reason: format!("connection {conn_id} not found"),
-            }
-        })?;
+        let conn_handle =
+            self.registry
+                .get(conn_id)
+                .ok_or_else(|| CatalystError::ConnectionLost {
+                    reason: format!("connection {conn_id} not found"),
+                })?;
 
         let start = std::time::Instant::now();
         let query_hash = sha256_hex(query.text.as_bytes());
@@ -77,11 +74,12 @@ impl QueryExecutor {
 
     /// Inspect the schema for a connection.
     pub async fn inspect_schema(&self, conn_id: Uuid) -> Result<DatabaseSchema> {
-        let conn_handle = self.registry.get(conn_id).ok_or_else(|| {
-            CatalystError::ConnectionLost {
-                reason: format!("connection {conn_id} not found"),
-            }
-        })?;
+        let conn_handle =
+            self.registry
+                .get(conn_id)
+                .ok_or_else(|| CatalystError::ConnectionLost {
+                    reason: format!("connection {conn_id} not found"),
+                })?;
 
         let mut conn = conn_handle.lock().await;
         let schema = conn.inspect_schema().await?;

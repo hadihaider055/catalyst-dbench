@@ -7,7 +7,7 @@
 //! Automatically implements [`dbench_core::driver::ConnectionConfig`] for a struct.
 //!
 //! Fields marked with `#[config(secret)]` are:
-//! - Excluded from `display_string()` output (no accidental credential logging)
+//! - Excluded from `display_string()` and `Debug` output (no accidental credential logging)
 //! - Typed as `secrecy::Secret<String>` at compile time
 //! - Loaded from the OS keychain, not from the config file on disk
 //!
@@ -16,7 +16,7 @@
 //! ```rust,ignore
 //! use dbench_macros::ConnectionConfig;
 //!
-//! #[derive(ConnectionConfig, Debug, Clone, serde::Serialize, serde::Deserialize)]
+//! #[derive(ConnectionConfig, Clone, serde::Serialize, serde::Deserialize)]
 //! pub struct PostgresConfig {
 //!     pub host: String,
 //!     pub port: u16,
@@ -30,12 +30,13 @@
 //! // - impl ConnectionConfig for PostgresConfig
 //! // - fn validate(&self) -> Result<()>  — checks required fields
 //! // - fn display_string(&self) -> String — omits password
+//! // - impl Debug — same redacted output (do not also derive Debug)
 //! ```
 
 use darling::{ast, FromDeriveInput, FromField};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Ident, Type};
+use syn::{parse_macro_input, DeriveInput, Ident};
 
 // ---------------------------------------------------------------------------
 // ConnectionConfig derive
@@ -46,7 +47,6 @@ use syn::{parse_macro_input, DeriveInput, Ident, Type};
 #[darling(attributes(config))]
 struct ConfigField {
     ident: Option<Ident>,
-    ty: Type,
     /// Mark this field as a secret — excluded from display, loaded from keychain.
     #[darling(default)]
     secret: bool,
@@ -127,27 +127,12 @@ pub fn derive_connection_config(input: TokenStream) -> TokenStream {
                 format!("{}({})", stringify!(#struct_name), parts.join(", "))
             }
         }
-    };
 
-    TokenStream::from(expanded)
-}
-
-// ---------------------------------------------------------------------------
-// SchemaMapper derive (stub — to be implemented in Phase 2)
-// ---------------------------------------------------------------------------
-
-/// Derive macro that generates mapping from a driver-native schema type
-/// to `dbench_core::schema::DatabaseSchema`.
-///
-/// Not yet fully implemented. Stub provided so the crate compiles.
-#[proc_macro_derive(SchemaMapper, attributes(schema))]
-pub fn derive_schema_mapper(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let struct_name = &input.ident;
-
-    // For now just emit an empty impl as a placeholder.
-    let expanded = quote! {
-        // SchemaMapper for #struct_name — full implementation in Phase 2
+        impl ::std::fmt::Debug for #struct_name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                f.write_str(&dbench_core::driver::ConnectionConfig::display_string(self))
+            }
+        }
     };
 
     TokenStream::from(expanded)

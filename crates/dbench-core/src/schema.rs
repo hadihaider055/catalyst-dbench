@@ -132,7 +132,7 @@ pub struct ForeignKeySchema {
 /// An inferred field from sampling a document collection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferredField {
-    pub path: String,      // e.g., "address.city"
+    pub path: String, // e.g., "address.city"
     pub inferred_type: String,
     pub occurrence_rate: f64, // 0.0–1.0, what fraction of sampled docs have this field
 }

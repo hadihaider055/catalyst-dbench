@@ -1,6 +1,6 @@
 //! PostgreSQL driver — uses `tokio-postgres` with a background connection task.
 //!
-//! Compatible with: PostgreSQL 12+, CockroachDB, Supabase, Neon.
+//! Compatible with: PostgreSQL 12+, CockroachDB, Aurora/RDS, Supabase, Neon, YugabyteDB, Redshift.
 
 mod schema;
 
@@ -27,7 +27,7 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Configuration for a PostgreSQL connection.
-#[derive(ConnectionConfig, Debug, Clone, Serialize, Deserialize)]
+#[derive(ConnectionConfig, Clone, Serialize, Deserialize)]
 pub struct PostgresConfig {
     #[config(required)]
     pub host: String,
@@ -61,6 +61,53 @@ impl Default for PostgresConfig {
 }
 
 // ---------------------------------------------------------------------------
+// TLS
+// ---------------------------------------------------------------------------
+
+/// Build a verifying TLS connector from the OS trust store plus an optional
+/// custom CA bundle (e.g. Amazon RDS `global-bundle.pem` for Aurora/RDS).
+fn tls_connector(tls: &TlsConfig) -> Result<native_tls::TlsConnector> {
+    let tls_err = |e: String| CatalystError::connection_failed(DatabaseType::Postgres, "tls", e);
+    let mut builder = native_tls::TlsConnector::builder();
+    if let Some(path) = &tls.ca_cert_path {
+        let pem = std::fs::read(path).map_err(|e| tls_err(format!("{}: {e}", path.display())))?;
+        // A CA bundle file holds many certs; add each one.
+        for cert in split_pem(&pem) {
+            let cert =
+                native_tls::Certificate::from_pem(cert).map_err(|e| tls_err(e.to_string()))?;
+            builder.add_root_certificate(cert);
+        }
+    }
+    builder.build().map_err(|e| tls_err(e.to_string()))
+}
+
+/// Split a PEM bundle into individual certificate blocks.
+fn split_pem(pem: &[u8]) -> Vec<&[u8]> {
+    const END: &[u8] = b"-----END CERTIFICATE-----";
+    let mut out = Vec::new();
+    let mut start = 0;
+    while let Some(i) = pem[start..].windows(END.len()).position(|w| w == END) {
+        let end = start + i + END.len();
+        out.push(&pem[start..end]);
+        start = end;
+    }
+    out
+}
+
+/// Drive a tokio-postgres connection in the background.
+fn spawn_connection<S, T>(connection: tokio_postgres::Connection<S, T>)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    T: tokio_postgres::tls::TlsStream + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("PostgreSQL connection error: {}", e);
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Driver
 // ---------------------------------------------------------------------------
 
@@ -71,9 +118,15 @@ impl Driver for PostgresDriver {
     type Connection = PostgresConnection;
     type Config = PostgresConfig;
 
-    fn name(&self) -> &'static str { "postgres" }
-    fn database_type(&self) -> DatabaseType { DatabaseType::Postgres }
-    fn default_port(&self) -> Option<u16> { Some(5432) }
+    fn name(&self) -> &'static str {
+        "postgres"
+    }
+    fn database_type(&self) -> DatabaseType {
+        DatabaseType::Postgres
+    }
+    fn default_port(&self) -> Option<u16> {
+        Some(5432)
+    }
 
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
         config.validate()?;
@@ -100,19 +153,28 @@ impl Driver for PostgresDriver {
             pg_config.connect_timeout(std::time::Duration::from_millis(ms));
         }
 
-        let (client, connection) = pg_config
-            .connect(tokio_postgres::NoTls)
-            .await
-            .map_err(|e| CatalystError::connection_failed(
-                DatabaseType::Postgres, &config.host, e.to_string(),
-            ))?;
+        let conn_err = |e: tokio_postgres::Error| {
+            CatalystError::connection_failed(DatabaseType::Postgres, &config.host, e.to_string())
+        };
 
-        // Drive the connection in the background.
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("PostgreSQL connection error: {}", e);
-            }
-        });
+        let client = if config.tls.mode == TlsMode::Disabled {
+            let (client, connection) = pg_config
+                .connect(tokio_postgres::NoTls)
+                .await
+                .map_err(conn_err)?;
+            spawn_connection(connection);
+            client
+        } else {
+            pg_config.ssl_mode(if config.tls.mode == TlsMode::Preferred {
+                tokio_postgres::config::SslMode::Prefer
+            } else {
+                tokio_postgres::config::SslMode::Require
+            });
+            let connector = postgres_native_tls::MakeTlsConnector::new(tls_connector(&config.tls)?);
+            let (client, connection) = pg_config.connect(connector).await.map_err(conn_err)?;
+            spawn_connection(connection);
+            client
+        };
 
         // Apply read-only session if needed.
         if !config.mode.allows_writes() {
@@ -168,16 +230,16 @@ pub struct PostgresConnection {
 impl Connection for PostgresConnection {
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         if !self.alive {
-            return Err(CatalystError::ConnectionLost { reason: "connection is closed".into() });
+            return Err(CatalystError::ConnectionLost {
+                reason: "connection is closed".into(),
+            });
         }
 
         // Engine-level read-only guard.
-        if !self.mode.allows_writes() {
-            let upper = query.text.trim_start().to_uppercase();
-            let writes = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE"];
-            if writes.iter().any(|kw| upper.starts_with(kw)) {
-                return Err(CatalystError::ReadOnlyViolation);
-            }
+        // Scans every statement, ignoring comments/strings; also blocks `SET …` so a
+        // session-level READ ONLY can't be switched back off.
+        if !self.mode.allows_writes() && dbench_core::guard::is_sql_write(&query.text) {
+            return Err(CatalystError::ReadOnlyViolation);
         }
 
         let start = Instant::now();
@@ -195,25 +257,34 @@ impl Connection for PostgresConnection {
             .map(|p| p.as_ref() as &(dyn ToSql + Sync))
             .collect();
 
-        let stmt = self.client
+        let stmt = self
+            .client
             .prepare(&query_text)
             .await
             .map_err(|e| CatalystError::query_failed(e.to_string()))?;
 
-        let columns: Vec<Column> = stmt.columns().iter().map(|col| Column {
-            name: col.name().to_string(),
-            col_type: pg_type_to_col_type(col.type_()),
-            nullable: true,
-            native_type: col.type_().name().to_string(),
-        }).collect();
+        let columns: Vec<Column> = stmt
+            .columns()
+            .iter()
+            .map(|col| Column {
+                name: col.name().to_string(),
+                col_type: pg_type_to_col_type(col.type_()),
+                nullable: true,
+                native_type: col.type_().name().to_string(),
+            })
+            .collect();
 
         // DML vs SELECT dispatch.
         let upper = query_text.trim_start().to_uppercase();
-        let is_dml = ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE", "DROP", "ALTER"]
-            .iter().any(|kw| upper.starts_with(kw));
+        let is_dml = [
+            "INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE", "DROP", "ALTER",
+        ]
+        .iter()
+        .any(|kw| upper.starts_with(kw));
 
         if is_dml && !query.explain {
-            let rows_affected = self.client
+            let rows_affected = self
+                .client
                 .execute(&stmt, &param_refs)
                 .await
                 .map_err(|e| CatalystError::query_failed(e.to_string()))?;
@@ -227,7 +298,8 @@ impl Connection for PostgresConnection {
             });
         }
 
-        let rows = self.client
+        let rows = self
+            .client
             .query(&stmt, &param_refs)
             .await
             .map_err(|e| CatalystError::query_failed(e.to_string()))?;
@@ -235,7 +307,8 @@ impl Connection for PostgresConnection {
         let duration_ms = start.elapsed().as_millis() as u64;
 
         if query.explain {
-            let plan = rows.iter()
+            let plan = rows
+                .iter()
                 .filter_map(|r| r.try_get::<_, String>(0).ok())
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -248,11 +321,16 @@ impl Connection for PostgresConnection {
             });
         }
 
-        let result_rows: Vec<Row> = rows.iter().map(|row| Row {
-            values: columns.iter().enumerate().map(|(i, col)| {
-                extract_pg_value(row, i, &col.col_type)
-            }).collect(),
-        }).collect();
+        let result_rows: Vec<Row> = rows
+            .iter()
+            .map(|row| Row {
+                values: columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, col)| extract_pg_value(row, i, &col.col_type))
+                    .collect(),
+            })
+            .collect();
 
         Ok(QueryResult {
             columns,
@@ -269,8 +347,12 @@ impl Connection for PostgresConnection {
 
     async fn ping(&mut self) -> Result<Duration> {
         let start = Instant::now();
-        self.client.simple_query("SELECT 1").await
-            .map_err(|e| CatalystError::ConnectionLost { reason: e.to_string() })?;
+        self.client
+            .simple_query("SELECT 1")
+            .await
+            .map_err(|e| CatalystError::ConnectionLost {
+                reason: e.to_string(),
+            })?;
         Ok(start.elapsed())
     }
 
@@ -279,9 +361,15 @@ impl Connection for PostgresConnection {
         Ok(())
     }
 
-    fn is_alive(&self) -> bool { self.alive }
-    fn info(&self) -> &ConnectionInfo { &self.info }
-    fn mode(&self) -> ConnectionMode { self.mode }
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+    fn info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+    fn mode(&self) -> ConnectionMode {
+        self.mode
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -289,19 +377,22 @@ impl Connection for PostgresConnection {
 // ---------------------------------------------------------------------------
 
 fn to_pg_params(params: &[QueryParam]) -> Vec<Box<dyn ToSql + Sync + Send>> {
-    params.iter().map(|p| -> Box<dyn ToSql + Sync + Send> {
-        match p {
-            QueryParam::Null      => Box::new(Option::<String>::None),
-            QueryParam::Bool(b)   => Box::new(*b),
-            QueryParam::Int(i)    => Box::new(*i),
-            QueryParam::Float(f)  => Box::new(*f),
-            QueryParam::Text(s)   => Box::new(s.clone()),
-            QueryParam::Bytes(b)  => Box::new(b.clone()),
-            QueryParam::Json(j)   => Box::new(j.clone()),
-            QueryParam::Uuid(u)   => Box::new(*u),
-            QueryParam::Timestamp(s) => Box::new(s.clone()),
-        }
-    }).collect()
+    params
+        .iter()
+        .map(|p| -> Box<dyn ToSql + Sync + Send> {
+            match p {
+                QueryParam::Null => Box::new(Option::<String>::None),
+                QueryParam::Bool(b) => Box::new(*b),
+                QueryParam::Int(i) => Box::new(*i),
+                QueryParam::Float(f) => Box::new(*f),
+                QueryParam::Text(s) => Box::new(s.clone()),
+                QueryParam::Bytes(b) => Box::new(b.clone()),
+                QueryParam::Json(j) => Box::new(j.clone()),
+                QueryParam::Uuid(u) => Box::new(*u),
+                QueryParam::Timestamp(s) => Box::new(s.clone()),
+            }
+        })
+        .collect()
 }
 
 fn pg_type_to_col_type(pg: &tokio_postgres::types::Type) -> ColumnType {
@@ -324,35 +415,48 @@ fn pg_type_to_col_type(pg: &tokio_postgres::types::Type) -> ColumnType {
 
 fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType) -> Value {
     match col_type {
-        ColumnType::Boolean => {
-            row.try_get::<_, bool>(idx).map(Value::Bool).unwrap_or(Value::Null)
-        }
+        ColumnType::Boolean => row
+            .try_get::<_, bool>(idx)
+            .map(Value::Bool)
+            .unwrap_or(Value::Null),
         ColumnType::Integer => {
-            if let Ok(v) = row.try_get::<_, i64>(idx) { return Value::Int(v); }
-            if let Ok(v) = row.try_get::<_, i32>(idx) { return Value::Int(i64::from(v)); }
-            if let Ok(v) = row.try_get::<_, i16>(idx) { return Value::Int(i64::from(v)); }
-            row.try_get::<_, u32>(idx).map(|v| Value::Int(i64::from(v))).unwrap_or(Value::Null)
+            if let Ok(v) = row.try_get::<_, i64>(idx) {
+                return Value::Int(v);
+            }
+            if let Ok(v) = row.try_get::<_, i32>(idx) {
+                return Value::Int(i64::from(v));
+            }
+            if let Ok(v) = row.try_get::<_, i16>(idx) {
+                return Value::Int(i64::from(v));
+            }
+            row.try_get::<_, u32>(idx)
+                .map(|v| Value::Int(i64::from(v)))
+                .unwrap_or(Value::Null)
         }
         ColumnType::Float => {
-            if let Ok(v) = row.try_get::<_, f64>(idx) { return Value::Float(v); }
-            row.try_get::<_, f32>(idx).map(|v| Value::Float(f64::from(v))).unwrap_or(Value::Null)
-        }
-        ColumnType::Decimal => {
-            row.try_get::<_, String>(idx).map(Value::Decimal).unwrap_or(Value::Null)
-        }
-        ColumnType::Bytes => {
-            row.try_get::<_, Vec<u8>>(idx).map(Value::Bytes).unwrap_or(Value::Null)
-        }
-        ColumnType::Date => {
-            row.try_get::<_, chrono::NaiveDate>(idx)
-                .map(|d| Value::Date(d.to_string()))
+            if let Ok(v) = row.try_get::<_, f64>(idx) {
+                return Value::Float(v);
+            }
+            row.try_get::<_, f32>(idx)
+                .map(|v| Value::Float(f64::from(v)))
                 .unwrap_or(Value::Null)
         }
-        ColumnType::Time => {
-            row.try_get::<_, chrono::NaiveTime>(idx)
-                .map(|t| Value::Time(t.to_string()))
-                .unwrap_or(Value::Null)
-        }
+        ColumnType::Decimal => row
+            .try_get::<_, String>(idx)
+            .map(Value::Decimal)
+            .unwrap_or(Value::Null),
+        ColumnType::Bytes => row
+            .try_get::<_, Vec<u8>>(idx)
+            .map(Value::Bytes)
+            .unwrap_or(Value::Null),
+        ColumnType::Date => row
+            .try_get::<_, chrono::NaiveDate>(idx)
+            .map(|d| Value::Date(d.to_string()))
+            .unwrap_or(Value::Null),
+        ColumnType::Time => row
+            .try_get::<_, chrono::NaiveTime>(idx)
+            .map(|t| Value::Time(t.to_string()))
+            .unwrap_or(Value::Null),
         ColumnType::Timestamp => {
             if let Ok(v) = row.try_get::<_, chrono::DateTime<chrono::Utc>>(idx) {
                 return Value::Timestamp(v);
@@ -361,14 +465,47 @@ fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType
                 .map(|dt| Value::Timestamp(dt.and_utc()))
                 .unwrap_or(Value::Null)
         }
-        ColumnType::Json => {
-            row.try_get::<_, serde_json::Value>(idx).map(Value::Json).unwrap_or(Value::Null)
-        }
-        ColumnType::Uuid => {
-            row.try_get::<_, uuid::Uuid>(idx).map(Value::Uuid).unwrap_or(Value::Null)
-        }
-        _ => {
-            row.try_get::<_, String>(idx).map(Value::Text).unwrap_or(Value::Null)
-        }
+        ColumnType::Json => row
+            .try_get::<_, serde_json::Value>(idx)
+            .map(Value::Json)
+            .unwrap_or(Value::Null),
+        ColumnType::Uuid => row
+            .try_get::<_, uuid::Uuid>(idx)
+            .map(Value::Uuid)
+            .unwrap_or(Value::Null),
+        _ => row
+            .try_get::<_, String>(idx)
+            .map(Value::Text)
+            .unwrap_or(Value::Null),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_pem;
+
+    #[test]
+    fn split_pem_returns_each_certificate() {
+        let pem = b"-----BEGIN CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----\n";
+        let certs = split_pem(pem);
+        assert_eq!(certs.len(), 2);
+        assert!(certs[1].ends_with(b"-----END CERTIFICATE-----"));
+        assert!(split_pem(b"garbage").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::PostgresConfig;
+
+    #[test]
+    fn debug_never_prints_password() {
+        let cfg = PostgresConfig {
+            password: Some("hunter2".into()),
+            ..PostgresConfig::default()
+        };
+        let dbg = format!("{cfg:?}");
+        assert!(!dbg.contains("hunter2"), "{dbg}");
+        assert!(dbg.contains("password=[REDACTED]"));
     }
 }

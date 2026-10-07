@@ -54,6 +54,37 @@ export const SNIPPETS: Record<string, { label: string; sql: string }[]> = {
     { label: "Create Table",sql: "CREATE TABLE <keyspace>.<table> (\n  id UUID PRIMARY KEY,\n  created_at TIMESTAMP\n);" },
     { label: "Partitions",  sql: "SELECT * FROM system.size_estimates WHERE keyspace_name = '<keyspace>';" },
   ],
+  mssql: [
+    { label: "Tables",    sql: "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY 1, 2;" },
+    { label: "Databases", sql: "SELECT name FROM sys.databases;" },
+    { label: "Columns",   sql: "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '<table>';" },
+    { label: "Sessions",  sql: "SELECT session_id, login_name, status FROM sys.dm_exec_sessions WHERE is_user_process = 1;" },
+  ],
+  oracle: [
+    { label: "Tables",    sql: "SELECT table_name FROM user_tables ORDER BY table_name" },
+    { label: "Columns",   sql: "SELECT column_name, data_type, nullable FROM user_tab_columns WHERE table_name = '<TABLE>'" },
+    { label: "Version",   sql: "SELECT banner FROM v$version" },
+    { label: "Sessions",  sql: "SELECT sid, username, status FROM v$session WHERE username IS NOT NULL" },
+  ],
+  dynamodb: [
+    { label: "Select",    sql: "SELECT * FROM \"<table>\" WHERE pk = '<value>'" },
+    { label: "Index",     sql: "SELECT * FROM \"<table>\".\"<index>\" WHERE gsi_pk = '<value>'" },
+    { label: "Insert",    sql: "INSERT INTO \"<table>\" VALUE {'pk': '<value>', 'attr': 1}" },
+    { label: "Update",    sql: "UPDATE \"<table>\" SET attr = 2 WHERE pk = '<value>'" },
+  ],
+  elasticsearch: [
+    { label: "Indices",   sql: "GET /_cat/indices?format=json&v" },
+    { label: "Health",    sql: "GET /_cluster/health" },
+    { label: "Search",    sql: "GET /<index>/_search\n{\n  \"size\": 20,\n  \"query\": { \"match_all\": {} }\n}" },
+    { label: "Mapping",   sql: "GET /<index>/_mapping" },
+    { label: "SQL",       sql: "SELECT * FROM \"<index>\" LIMIT 20" },
+  ],
+  surrealdb: [
+    { label: "Info",      sql: "INFO FOR DB;" },
+    { label: "Select",    sql: "SELECT * FROM <table> LIMIT 100;" },
+    { label: "Table info",sql: "INFO FOR TABLE <table>;" },
+    { label: "Create",    sql: "CREATE <table> CONTENT { name: 'example' };" },
+  ],
   clickhouse: [
     { label: "Tables",      sql: "SHOW TABLES;" },
     { label: "Databases",   sql: "SHOW DATABASES;" },
@@ -64,6 +95,20 @@ export const SNIPPETS: Record<string, { label: string; sql: string }[]> = {
     { label: "Mutations",   sql: "SELECT * FROM system.mutations WHERE is_done = 0;" },
   ],
 };
+
+/** "First 100 rows" in each dialect (only MySQL-family/Postgres/SQLite/CH/CQL/ES/Surreal accept LIMIT). */
+export function selectRowsSql(dbType: DatabaseType, table: string): string {
+  switch (dbType) {
+    case "mssql":
+      return `SELECT TOP 100 * FROM ${table};`;
+    case "oracle":
+      return `SELECT * FROM ${table} FETCH FIRST 100 ROWS ONLY`;
+    case "dynamodb":
+      return `SELECT * FROM "${table.replace(/"/g, '""')}"`;
+    default:
+      return `SELECT * FROM ${table} LIMIT 100;`;
+  }
+}
 
 export function getSnippets(dbType: DatabaseType) {
   return SNIPPETS[dbType] ?? SNIPPETS["mysql"] ?? [];

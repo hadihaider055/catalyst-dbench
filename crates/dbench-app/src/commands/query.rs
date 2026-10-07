@@ -12,7 +12,6 @@ use crate::state::AppState;
 pub struct QueryPayload {
     pub connection_id: String,
     pub sql: String,
-    pub params: Option<Vec<serde_json::Value>>,
     pub timeout_ms: Option<u64>,
     pub explain: Option<bool>,
 }
@@ -59,10 +58,7 @@ pub async fn execute_query(
 
 /// Cancel an in-flight query for the given connection.
 #[tauri::command]
-pub async fn cancel_query(
-    state: State<'_, AppState>,
-    connection_id: String,
-) -> Result<(), String> {
+pub async fn cancel_query(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
     let conn_id = Uuid::parse_str(&connection_id).map_err(|e| e.to_string())?;
     if let Some((_, token)) = state.cancel_tokens.remove(&conn_id) {
         token.cancel();

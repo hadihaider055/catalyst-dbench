@@ -1,8 +1,6 @@
 //! Tauri commands for application-level operations.
 
-use tauri::{Manager, State};
-
-use crate::state::AppState;
+use tauri::Manager;
 
 /// Get the current application version.
 #[tauri::command]

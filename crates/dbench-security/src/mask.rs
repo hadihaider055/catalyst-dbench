@@ -14,8 +14,10 @@ use crate::{crypto::sha256_hex, Result, SecurityError};
 /// How a sensitive column value should be masked.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
+#[derive(Default)]
 pub enum MaskMode {
     /// Replace the entire value with asterisks: `"***"`.
+    #[default]
     FullRedact,
     /// Show only the last N characters, mask the rest: `"****1234"`.
     ShowLast { chars: usize },
@@ -25,12 +27,6 @@ pub enum MaskMode {
     Hash,
     /// Replace with a constant placeholder string.
     Placeholder { text: String },
-}
-
-impl Default for MaskMode {
-    fn default() -> Self {
-        Self::FullRedact
-    }
 }
 
 /// A masking rule for a column name pattern.
@@ -217,7 +213,10 @@ mod tests {
     #[test]
     fn wildcard_pattern() {
         let engine = MaskEngine::new(&[ColumnMask::redact("credit_card.*")]).unwrap();
-        assert_eq!(engine.mask_value("credit_card_number", "4111111111111111"), "***");
+        assert_eq!(
+            engine.mask_value("credit_card_number", "4111111111111111"),
+            "***"
+        );
         assert_eq!(engine.mask_value("credit_card_cvv", "123"), "***");
     }
 
