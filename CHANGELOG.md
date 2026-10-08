@@ -1,3 +1,9 @@
+## [1.5.5](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.4...v1.5.5) (2026-10-08)
+
+### Bug Fixes
+
+* **ci:** skip tauri-cli install when cached ([86c65a1](https://github.com/hadihaider055/catalyst-dbench/commit/86c65a1eff03348370bc3b5755a3fdd0252ffde0))
+
 ## [1.5.4](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.3...v1.5.4) (2026-10-08)
 
 ### Bug Fixes
