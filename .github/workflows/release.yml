@@ -94,7 +94,7 @@ jobs:
         run: npm ci
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: command -v cargo-tauri || cargo install tauri-cli --version "^2" --locked  # may be restored from cache
 
       # Tauri v2's CLI has no --project-dir; run from the app crate. Bundles still
       # land in the workspace target/ dir that the upload step globs.
