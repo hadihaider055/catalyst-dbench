@@ -251,7 +251,7 @@ impl Connection for PostgresConnection {
         let start = Instant::now();
 
         let query_text = if query.explain {
-            format!("EXPLAIN ANALYZE {}", query.text)
+            format!("EXPLAIN (ANALYZE, FORMAT JSON) {}", query.text)
         } else {
             query.text.clone()
         };
@@ -315,7 +315,13 @@ impl Connection for PostgresConnection {
         if query.explain {
             let plan = rows
                 .iter()
-                .filter_map(|r| r.try_get::<_, String>(0).ok())
+                .filter_map(|r| {
+                    // FORMAT JSON returns a `json` column, which String can't decode.
+                    r.try_get::<_, serde_json::Value>(0)
+                        .map(|v| v.to_string())
+                        .or_else(|_| r.try_get::<_, String>(0))
+                        .ok()
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             return Ok(QueryResult {
@@ -419,6 +425,69 @@ fn pg_type_to_col_type(pg: &tokio_postgres::types::Type) -> ColumnType {
     }
 }
 
+/// `NUMERIC` decoded to its exact decimal string. tokio-postgres has no built-in
+/// `FromSql` for it (`String` doesn't accept NUMERIC), so every value read as NULL.
+struct PgNumeric(String);
+
+impl<'a> postgres_types::FromSql<'a> for PgNumeric {
+    fn from_sql(
+        _: &postgres_types::Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        decode_numeric(raw)
+            .map(PgNumeric)
+            .ok_or_else(|| "malformed NUMERIC".into())
+    }
+    postgres_types::accepts!(NUMERIC);
+}
+
+/// Binary NUMERIC: ndigits, weight, sign, dscale (all 16-bit), then base-10000 digits.
+fn decode_numeric(raw: &[u8]) -> Option<String> {
+    let word = |i: usize| -> Option<i16> {
+        Some(i16::from_be_bytes([*raw.get(i * 2)?, *raw.get(i * 2 + 1)?]))
+    };
+    let (ndigits, weight) = (word(0)? as usize, i32::from(word(1)?));
+    let (sign, dscale) = (word(2)? as u16, word(3)? as u16 as usize);
+    match sign {
+        0xC000 => return Some("NaN".into()),
+        0xD000 => return Some("Infinity".into()),
+        0xF000 => return Some("-Infinity".into()),
+        _ => {}
+    }
+    let digits: Vec<i16> = (0..ndigits).map(|i| word(4 + i)).collect::<Option<_>>()?;
+    let group = |pos: i32| -> i16 {
+        usize::try_from(pos)
+            .ok()
+            .and_then(|p| digits.get(p).copied())
+            .unwrap_or(0)
+    };
+
+    let mut out = String::new();
+    if sign == 0x4000 && digits.iter().any(|&d| d != 0) {
+        out.push('-');
+    }
+    if weight < 0 {
+        out.push('0');
+    } else {
+        out.push_str(&group(0).to_string());
+        for pos in 1..=weight {
+            out.push_str(&format!("{:04}", group(pos)));
+        }
+    }
+    if dscale > 0 {
+        let mut frac = String::new();
+        let mut pos = weight + 1;
+        while frac.len() < dscale {
+            frac.push_str(&format!("{:04}", group(pos)));
+            pos += 1;
+        }
+        frac.truncate(dscale);
+        out.push('.');
+        out.push_str(&frac);
+    }
+    Some(out)
+}
+
 fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType) -> Value {
     match col_type {
         ColumnType::Boolean => row
@@ -448,8 +517,8 @@ fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType
                 .unwrap_or(Value::Null)
         }
         ColumnType::Decimal => row
-            .try_get::<_, String>(idx)
-            .map(Value::Decimal)
+            .try_get::<_, PgNumeric>(idx)
+            .map(|n| Value::Decimal(n.0))
             .unwrap_or(Value::Null),
         ColumnType::Bytes => row
             .try_get::<_, Vec<u8>>(idx)
@@ -488,7 +557,32 @@ fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType
 
 #[cfg(test)]
 mod tests {
-    use super::split_pem;
+    use super::{decode_numeric, split_pem};
+
+    /// Encode like Postgres' binary NUMERIC send format.
+    fn numeric(weight: i16, sign: u16, dscale: u16, digits: &[i16]) -> Vec<u8> {
+        let mut b = Vec::new();
+        for w in [digits.len() as i16, weight, sign as i16, dscale as i16] {
+            b.extend_from_slice(&w.to_be_bytes());
+        }
+        for d in digits {
+            b.extend_from_slice(&d.to_be_bytes());
+        }
+        b
+    }
+
+    #[test]
+    fn decodes_numeric() {
+        let d = |w, s, sc, g: &[i16]| decode_numeric(&numeric(w, s, sc, g)).unwrap();
+        assert_eq!(d(0, 0, 2, &[1234, 5600]), "1234.56");
+        assert_eq!(d(1, 0, 0, &[12, 3456]), "123456");
+        assert_eq!(d(1, 0x4000, 2, &[1, 0, 2500]), "-10000.25");
+        assert_eq!(d(-1, 0, 4, &[5]), "0.0005");
+        assert_eq!(d(-2, 0, 8, &[12]), "0.00000012");
+        assert_eq!(d(0, 0, 2, &[]), "0.00");
+        assert_eq!(d(2, 0, 0, &[1]), "100000000");
+        assert_eq!(d(0, 0xC000, 0, &[]), "NaN");
+    }
 
     #[test]
     fn split_pem_returns_each_certificate() {
