@@ -1,3 +1,9 @@
+## [1.5.6](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.5...v1.5.6) (2026-10-08)
+
+### Bug Fixes
+
+* **drivers:** use json format for postgres explain plans ([ed5d13e](https://github.com/hadihaider055/catalyst-dbench/commit/ed5d13eed0d1690c8d954b0af1a8179c4514d4f1))
+
 ## [1.5.5](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.4...v1.5.5) (2026-10-08)
 
 ### Bug Fixes
