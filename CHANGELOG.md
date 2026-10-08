@@ -1,3 +1,9 @@
+## [1.5.4](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.3...v1.5.4) (2026-10-08)
+
+### Bug Fixes
+
+* **ui:** parse postgres/mysql/redis connection uris into fields ([a6fe883](https://github.com/hadihaider055/catalyst-dbench/commit/a6fe883e2796cb0822883e7b66cd070980b97dfc))
+
 ## [1.5.3](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.2...v1.5.3) (2026-10-07)
 
 ### Bug Fixes
