@@ -160,6 +160,30 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
 
   const buildPayload = () => {
     const connName = name || `${dbType}-${host}`;
+    // Only the MongoDB driver takes a URI; for the rest, split it into the normal fields.
+    if (useUri && uri && dbType !== "mongodb") {
+      let u: URL;
+      try {
+        u = new URL(uri.trim());
+      } catch {
+        throw new Error("Invalid connection URI");
+      }
+      const sslmode = (u.searchParams.get("sslmode") ?? u.searchParams.get("ssl-mode") ?? "").toLowerCase();
+      return {
+        name: name || `${dbType}-${u.hostname}`,
+        db_type: dbType,
+        host: u.hostname,
+        port: u.port ? Number(u.port) : DB_DEFAULTS[dbType],
+        database: decodeURIComponent(u.pathname.replace(/^\//, "")) || database,
+        username: decodeURIComponent(u.username) || username,
+        password: decodeURIComponent(u.password) || password || undefined,
+        tls_enabled:
+          tls || u.protocol === "rediss:" || ["require", "verify-ca", "verify-full", "required", "verify_identity"].includes(sslmode),
+        tls_ca_path: tlsCaPath || undefined,
+        read_only: readOnly,
+        ...sshFields,
+      };
+    }
     if (useUri && uri) {
       return {
         name: connName,
@@ -203,7 +227,13 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
   };
 
   const handleSave = async () => {
-    const payload = buildPayload();
+    let payload: ReturnType<typeof buildPayload>;
+    try {
+      payload = buildPayload();
+    } catch (e) {
+      setTestResult({ ok: false, msg: String(e) });
+      return;
+    }
 
     if (reconnect || !existing) {
       setTesting(true);

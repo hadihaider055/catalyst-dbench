@@ -153,8 +153,14 @@ impl Driver for PostgresDriver {
             pg_config.connect_timeout(std::time::Duration::from_millis(ms));
         }
 
+        // tokio-postgres' Display is just "error connecting to server"; the cause
+        // (timeout, refused, DNS, TLS) lives in source(), so include it.
         let conn_err = |e: tokio_postgres::Error| {
-            CatalystError::connection_failed(DatabaseType::Postgres, &config.host, e.to_string())
+            let msg = match std::error::Error::source(&e) {
+                Some(cause) => format!("{e}: {cause}"),
+                None => e.to_string(),
+            };
+            CatalystError::connection_failed(DatabaseType::Postgres, &config.host, msg)
         };
 
         let client = if config.tls.mode == TlsMode::Disabled {
