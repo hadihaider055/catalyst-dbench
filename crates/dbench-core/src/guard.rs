@@ -6,10 +6,54 @@
 
 /// Keywords that modify data or schema in most SQL dialects.
 pub const SQL_WRITE_KEYWORDS: &[&str] = &[
-    "INSERT", "UPDATE", "DELETE", "MERGE", "UPSERT", "REPLACE", "CREATE", "ALTER", "DROP",
-    "TRUNCATE", "RENAME", "GRANT", "REVOKE", "DENY", "COMMIT", "EXEC", "EXECUTE", "CALL", "BEGIN",
-    "DECLARE", "INTO", "BACKUP", "RESTORE", "BULK", "OPTIMIZE", "COPY", "LOCK", "DEFINE", "REMOVE",
-    "RELATE", "KILL", "REBUILD", "SET",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "MERGE",
+    "UPSERT",
+    "REPLACE",
+    "CREATE",
+    "ALTER",
+    "DROP",
+    "TRUNCATE",
+    "RENAME",
+    "GRANT",
+    "REVOKE",
+    "DENY",
+    "COMMIT",
+    "EXEC",
+    "EXECUTE",
+    "CALL",
+    "BEGIN",
+    "DECLARE",
+    "INTO",
+    "BACKUP",
+    "RESTORE",
+    "BULK",
+    "OPTIMIZE",
+    "COPY",
+    "LOCK",
+    "DEFINE",
+    "REMOVE",
+    "RELATE",
+    "KILL",
+    "REBUILD",
+    "SET",
+    // Session switches that could turn a server-side READ ONLY back off
+    // (`RESET ALL`, `SELECT set_config('default_transaction_read_only', 'off', …)`,
+    // `START TRANSACTION READ WRITE`).
+    "RESET",
+    "DISCARD",
+    "SET_CONFIG",
+    "TRANSACTION",
+    // Admin statements with side effects (SQL Server, Oracle).
+    "DBCC",
+    "SHUTDOWN",
+    "RECONFIGURE",
+    "DISABLE",
+    "ENABLE",
+    "PURGE",
+    "FLASHBACK",
 ];
 
 /// Remove `-- …` line comments, `/* … */` block comments, and the contents
@@ -110,6 +154,14 @@ mod tests {
         // Dialect tricks must not hide a write.
         assert!(is_sql_write("SELECT 1 # 2; DROP TABLE t"));
         assert!(is_sql_write("SELECT 'x\\'; DROP TABLE t; --'"));
+        // Ways to switch a server-side read-only session back to read-write.
+        assert!(is_sql_write("RESET ALL"));
+        assert!(is_sql_write("DISCARD ALL"));
+        assert!(is_sql_write("START TRANSACTION READ WRITE"));
+        assert!(is_sql_write(
+            "SELECT set_config('default_transaction_read_only', 'off', false)"
+        ));
+        assert!(is_sql_write("DBCC SHRINKDATABASE(0)"));
     }
 
     #[test]

@@ -55,6 +55,7 @@ import {
   buildMongoUpdate,
   buildMongoDelete,
   sqlValue,
+  sqlString,
 } from "./helpers";
 
 interface Props {
@@ -423,7 +424,7 @@ function DataTable({ tab }: Props) {
     if (!tableName) return;
     const cols = headers.join(", ");
     const vals = row.values
-      .map((v) => sqlValue(v ?? { type: "null" }))
+      .map((v) => sqlValue(v ?? { type: "null" }, tab.db_type))
       .join(", ");
     navigator.clipboard.writeText(
       `INSERT INTO ${tableName} (${cols}) VALUES (${vals});`,
@@ -521,11 +522,11 @@ function DataTable({ tab }: Props) {
       } else if (tableName && pkColumn && pkColIdx >= 0) {
         // Only ever emit a statement with a primary-key WHERE clause: a missing
         // WHERE would rewrite every row in the table.
-        const where = `WHERE ${quoteIdent(tab.db_type, pkColumn)} = ${sqlValue(row.values[pkColIdx])}`;
+        const where = `WHERE ${quoteIdent(tab.db_type, pkColumn)} = ${sqlValue(row.values[pkColIdx], tab.db_type)}`;
         const val =
           newVal === "" || newVal === "NULL"
             ? "NULL"
-            : `'${newVal.replace(/'/g, "''")}'`;
+            : sqlString(tab.db_type, newVal);
         cmds.push(`UPDATE ${tableName} SET ${quoteIdent(tab.db_type, colName)} = ${val} ${where};`);
       }
     }
@@ -535,7 +536,7 @@ function DataTable({ tab }: Props) {
         const pkVal = displayValue(row.values[pkColIdx] ?? { type: "null" });
         cmds.push(buildMongoDelete(collectionName, mongoDb, pkColumn!, pkVal));
       } else if (tableName && pkColumn && pkColIdx >= 0) {
-        const where = `WHERE ${quoteIdent(tab.db_type, pkColumn)} = ${sqlValue(row.values[pkColIdx])}`;
+        const where = `WHERE ${quoteIdent(tab.db_type, pkColumn)} = ${sqlValue(row.values[pkColIdx], tab.db_type)}`;
         cmds.push(`DELETE FROM ${tableName} ${where};`);
       }
     }

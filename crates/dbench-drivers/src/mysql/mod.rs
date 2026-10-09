@@ -98,14 +98,6 @@ impl Driver for MysqlDriver {
             .ok()
             .flatten();
 
-        // Enforce read-only session.
-        if !config.mode.allows_writes() {
-            sqlx::query("SET SESSION TRANSACTION READ ONLY")
-                .execute(&pool)
-                .await
-                .map_err(|e| CatalystError::query_failed(e.to_string()))?;
-        }
-
         let info = ConnectionInfo {
             id: Uuid::new_v4(),
             db_type: DatabaseType::Mysql,
@@ -221,8 +213,24 @@ impl Connection for MysqlConnection {
         }
 
         if rows.is_empty() {
+            // No row to read column metadata from: ask the server to describe the
+            // statement so the grid can still show headers.
+            let columns = sqlx::Executor::describe(&self.pool, query_text.as_str())
+                .await
+                .map(|d| {
+                    d.columns()
+                        .iter()
+                        .map(|col| Column {
+                            name: col.name().to_string(),
+                            col_type: mysql_type_to_col_type(col.type_info()),
+                            nullable: true,
+                            native_type: col.type_info().name().to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             return Ok(QueryResult {
-                columns: vec![],
+                columns,
                 rows: vec![],
                 rows_affected: None,
                 duration_ms,
@@ -247,7 +255,7 @@ impl Connection for MysqlConnection {
                 values: columns
                     .iter()
                     .enumerate()
-                    .map(|(i, col)| extract_mysql_value(row, i, &col.col_type))
+                    .map(|(i, col)| extract_mysql_value(row, i, col))
                     .collect(),
             })
             .collect();
@@ -412,10 +420,12 @@ impl Connection for MysqlConnection {
 // ---------------------------------------------------------------------------
 
 fn connect_options(config: &MysqlConfig) -> MySqlConnectOptions {
-    let ssl_mode = if config.tls.mode == TlsMode::Disabled {
-        MySqlSslMode::Disabled
-    } else {
-        MySqlSslMode::Required
+    // sqlx's `Required` encrypts but never checks the certificate (MITM-able);
+    // `VerifyIdentity` validates the chain and hostname like the other drivers.
+    let ssl_mode = match config.tls.mode {
+        TlsMode::Disabled => MySqlSslMode::Disabled,
+        TlsMode::Preferred => MySqlSslMode::Preferred,
+        _ => MySqlSslMode::VerifyIdentity,
     };
 
     let mut opts = MySqlConnectOptions::new()
@@ -424,6 +434,9 @@ fn connect_options(config: &MysqlConfig) -> MySqlConnectOptions {
         .database(&config.database)
         .username(&config.username)
         .ssl_mode(ssl_mode);
+    if let Some(ca) = &config.tls.ca_cert_path {
+        opts = opts.ssl_ca(ca);
+    }
 
     if let Some(pass) = &config.password {
         opts = opts.password(pass);
@@ -433,8 +446,21 @@ fn connect_options(config: &MysqlConfig) -> MySqlConnectOptions {
 }
 
 async fn build_pool(config: &MysqlConfig) -> Result<Pool<MySql>> {
+    let read_only = !config.mode.allows_writes();
     MySqlPoolOptions::new()
         .max_connections(5)
+        // Session settings are per connection: make *every* pooled connection
+        // read-only, not just the one that happened to run the first statement.
+        .after_connect(move |conn, _| {
+            Box::pin(async move {
+                if read_only {
+                    sqlx::query("SET SESSION TRANSACTION READ ONLY")
+                        .execute(conn)
+                        .await?;
+                }
+                Ok(())
+            })
+        })
         .acquire_timeout(Duration::from_millis(
             config.connect_timeout_ms.unwrap_or(10_000),
         ))
@@ -475,6 +501,7 @@ fn mysql_type_to_col_type(info: &MySqlTypeInfo) -> ColumnType {
         "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => {
             ColumnType::Bytes
         }
+        "YEAR" | "BIT" => ColumnType::Integer,
         "DATE" => ColumnType::Date,
         "TIME" => ColumnType::Time,
         "DATETIME" | "TIMESTAMP" => ColumnType::Timestamp,
@@ -483,11 +510,43 @@ fn mysql_type_to_col_type(info: &MySqlTypeInfo) -> ColumnType {
     }
 }
 
-fn extract_mysql_value(row: &MySqlRow, idx: usize, col_type: &ColumnType) -> Value {
+fn extract_mysql_value(row: &MySqlRow, idx: usize, col: &Column) -> Value {
+    let v = extract_typed(row, idx, &col.col_type, &col.native_type);
+    let is_null = row
+        .try_get_raw(idx)
+        .map_or(true, |r| sqlx::ValueRef::is_null(&r));
+    if !v.is_null() || is_null {
+        return v;
+    }
+    // Typed decode refused a non-NULL value: show its raw form rather than NULL.
+    match row.try_get_unchecked::<Vec<u8>, _>(idx) {
+        Ok(b) => match String::from_utf8(b) {
+            Ok(t) => Value::Text(t),
+            Err(e) => Value::Bytes(e.into_bytes()),
+        },
+        Err(_) => Value::Null,
+    }
+}
+
+fn extract_typed(row: &MySqlRow, idx: usize, col_type: &ColumnType, native: &str) -> Value {
     match col_type {
         ColumnType::Boolean => row
             .try_get::<bool, _>(idx)
             .map(Value::Bool)
+            .unwrap_or(Value::Null),
+        // BIT(n) arrives as big-endian bytes.
+        ColumnType::Integer if native == "BIT" => row
+            .try_get_unchecked::<Vec<u8>, _>(idx)
+            .map(|b| Value::Int(b.iter().fold(0i64, |acc, &x| (acc << 8) | i64::from(x))))
+            .unwrap_or(Value::Null),
+        ColumnType::Integer if native == "YEAR" => row
+            .try_get_unchecked::<u16, _>(idx)
+            .map(|y| Value::Int(y.into()))
+            .unwrap_or(Value::Null),
+        // Read unsigned first: as i64, values above i64::MAX wrap negative.
+        ColumnType::Integer if native.ends_with("UNSIGNED") => row
+            .try_get::<u64, _>(idx)
+            .map(|v| i64::try_from(v).map_or_else(|_| Value::Decimal(v.to_string()), Value::Int))
             .unwrap_or(Value::Null),
         ColumnType::Integer => {
             if let Ok(v) = row.try_get::<i64, _>(idx) {
@@ -509,8 +568,9 @@ fn extract_mysql_value(row: &MySqlRow, idx: usize, col_type: &ColumnType) -> Val
                 .map(|v| Value::Float(f64::from(v)))
                 .unwrap_or(Value::Null)
         }
+        // DECIMAL is sent as text, but sqlx only decodes it into rust_decimal/bigdecimal.
         ColumnType::Decimal => row
-            .try_get::<String, _>(idx)
+            .try_get_unchecked::<String, _>(idx)
             .map(Value::Decimal)
             .unwrap_or(Value::Null),
         ColumnType::Bytes => row
@@ -518,12 +578,13 @@ fn extract_mysql_value(row: &MySqlRow, idx: usize, col_type: &ColumnType) -> Val
             .map(Value::Bytes)
             .unwrap_or(Value::Null),
         ColumnType::Date => row
-            .try_get::<String, _>(idx)
-            .map(Value::Date)
+            .try_get::<chrono::NaiveDate, _>(idx)
+            .map(|d| Value::Date(d.to_string()))
             .unwrap_or(Value::Null),
+        // MySqlTime covers TIME's full range (-838:59:59..838:59:59), unlike NaiveTime.
         ColumnType::Time => row
-            .try_get::<String, _>(idx)
-            .map(Value::Time)
+            .try_get::<sqlx::mysql::types::MySqlTime, _>(idx)
+            .map(|t| Value::Time(t.to_string()))
             .unwrap_or(Value::Null),
         ColumnType::Timestamp => {
             if let Ok(v) = row.try_get::<chrono::DateTime<chrono::Utc>, _>(idx) {

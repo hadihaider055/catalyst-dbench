@@ -184,14 +184,47 @@ fn which_ssh() -> std::result::Result<(), String> {
         .map_err(|_| "ssh binary not found in PATH. Install OpenSSH to use SSH tunnels.".into())
 }
 
+/// Reject values that `ssh` could parse as an option (`-oProxyCommand=…`) or
+/// that would split/alter the forward spec or destination.
+fn check_ssh_value(what: &str, v: &str) -> std::io::Result<()> {
+    if v.is_empty() || v.starts_with('-') || v.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid SSH {what}"),
+        ));
+    }
+    Ok(())
+}
+
 fn spawn_ssh(config: &SshTunnelConfig, local_port: u16) -> std::io::Result<std::process::Child> {
+    let mut cmd = std::process::Command::new("ssh");
+    cmd.args(ssh_args(config, local_port)?);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+
+    cmd.spawn()
+}
+
+/// Arguments for `ssh`, validated so user input can never become an option.
+fn ssh_args(config: &SshTunnelConfig, local_port: u16) -> std::io::Result<Vec<String>> {
+    check_ssh_value("host", &config.ssh_host)?;
+    check_ssh_value("username", &config.ssh_username)?;
+    check_ssh_value("remote host", &config.remote_host)?;
+    if config.ssh_host.contains('@') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid SSH host",
+        ));
+    }
+
     let forward = format!(
         "127.0.0.1:{local_port}:{}:{}",
         config.remote_host, config.remote_port
     );
 
-    let mut cmd = std::process::Command::new("ssh");
-    cmd.args([
+    let mut args: Vec<String> = [
         "-N",
         "-o",
         "ExitOnForwardFailure=yes",
@@ -207,15 +240,18 @@ fn spawn_ssh(config: &SshTunnelConfig, local_port: u16) -> std::io::Result<std::
         &forward,
         "-p",
         &config.ssh_port.to_string(),
-    ]);
+    ]
+    .map(String::from)
+    .into();
 
     match &config.auth {
         SshAuthMethod::Agent => {
             // ssh picks up SSH_AUTH_SOCK automatically.
         }
         SshAuthMethod::PrivateKey { key_path, .. } => {
-            cmd.args(["-i", &key_path.to_string_lossy()]);
-            cmd.args(["-o", "IdentitiesOnly=yes"]);
+            // Separate argv entry after `-i`, so a leading '-' can't become an option.
+            args.extend(["-i".into(), key_path.to_string_lossy().into_owned()]);
+            args.extend(["-o".into(), "IdentitiesOnly=yes".into()]);
         }
         SshAuthMethod::Password { .. } => {
             return Err(std::io::Error::new(
@@ -225,12 +261,11 @@ fn spawn_ssh(config: &SshTunnelConfig, local_port: u16) -> std::io::Result<std::
         }
     }
 
-    cmd.arg(format!("{}@{}", config.ssh_username, config.ssh_host));
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-
-    cmd.spawn()
+    // User via `-l` (may itself contain '@'); `--` ends option parsing so the
+    // destination is never read as a flag.
+    args.extend(["-l".into(), config.ssh_username.clone()]);
+    args.extend(["--".into(), config.ssh_host.clone()]);
+    Ok(args)
 }
 
 async fn wait_for_port(port: u16) -> std::result::Result<(), String> {
@@ -251,4 +286,36 @@ async fn wait_for_port(port: u16) -> std::result::Result<(), String> {
 fn find_free_port() -> std::io::Result<u16> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     Ok(listener.local_addr()?.port())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(host: &str, user: &str, remote: &str) -> SshTunnelConfig {
+        SshTunnelConfig {
+            ssh_host: host.into(),
+            ssh_port: 22,
+            ssh_username: user.into(),
+            auth: SshAuthMethod::Agent,
+            remote_host: remote.into(),
+            remote_port: 5432,
+        }
+    }
+
+    #[test]
+    fn user_input_cannot_become_ssh_options() {
+        let args = ssh_args(&cfg("bastion", "me@corp", "db"), 1234).unwrap();
+        assert_eq!(args[args.len() - 4..], ["-l", "me@corp", "--", "bastion"]);
+        for bad in [
+            cfg("-oProxyCommand=touch /tmp/x", "u", "db"),
+            cfg("bastion", "-oProxyCommand=x", "db"),
+            cfg("bastion", "u", "-x"),
+            cfg("bastion", "u", "db -R 1:x:2"),
+            cfg("evil@bastion", "u", "db"),
+            cfg("", "u", "db"),
+        ] {
+            assert!(ssh_args(&bad, 1234).is_err());
+        }
+    }
 }

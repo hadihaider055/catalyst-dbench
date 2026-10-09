@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plug, PlugZap, Trash2, Eye, Copy, Database, Lock } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
 import { cn, dbIcon, dbColor } from "@/lib/utils";
+import { removeConnection } from "@/lib/commands";
 import type { SavedConnection } from "@/lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../ContextMenu/index";
 import DangerConfirm from "./DangerConfirm";
@@ -43,6 +44,8 @@ export default function ConnectionItem({
   const handleRemove = () => {
     removeActiveConnection(activeId ?? conn.id);
     removeSavedConnection(conn.id);
+    // Also deletes its password from the OS keychain.
+    removeConnection(conn.id).catch(() => {/* best-effort */});
     setRemoveConfirm(false);
   };
 

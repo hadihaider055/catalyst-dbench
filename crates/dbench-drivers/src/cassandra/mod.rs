@@ -95,6 +95,16 @@ impl Driver for CassandraDriver {
             "Connecting to Cassandra"
         );
 
+        // TLS isn't wired up for Cassandra yet: fail closed rather than silently
+        // connecting in plaintext while the UI shows a TLS badge.
+        if config.tls.mode.is_encrypted() {
+            return Err(CatalystError::connection_failed(
+                DatabaseType::Cassandra,
+                &config.host,
+                "TLS is not supported for Cassandra yet; disable TLS (e.g. over an SSH tunnel)",
+            ));
+        }
+
         let addr = format!("{}:{}", config.host, config.port);
 
         let mut builder = SessionBuilder::new().known_node(&addr);
@@ -259,10 +269,8 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
     // Fetch all user-defined keyspaces.
     let ks_result = session
         .query(
-            "SELECT keyspace_name FROM system_schema.keyspaces \
-             WHERE keyspace_name NOT IN ('system', 'system_auth', 'system_distributed', \
-             'system_traces', 'system_views', 'system_virtual_schema') \
-             ALLOW FILTERING",
+            // Cassandra 5 rejects NOT IN here; system keyspaces are filtered below.
+            "SELECT keyspace_name FROM system_schema.keyspaces",
             &[],
         )
         .await
@@ -281,6 +289,7 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
                 }
             })
         })
+        .filter(|ks| ks != "system" && !ks.starts_with("system_"))
         .collect();
 
     // For each keyspace, fetch its tables and their columns.
@@ -316,8 +325,7 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
                 .query(
                     "SELECT column_name, type, kind, position \
                      FROM system_schema.columns \
-                     WHERE keyspace_name = ? AND table_name = ? \
-                     ORDER BY position",
+                     WHERE keyspace_name = ? AND table_name = ?",
                     (keyspace.as_str(), table_name.as_str()),
                 )
                 .await
@@ -363,7 +371,8 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
                     .next()
                     .flatten()
                     .and_then(|v| match v {
-                        CqlValue::Int(i) => Some(i as u32),
+                        // Regular columns have position -1.
+                        CqlValue::Int(i) => u32::try_from(i).ok(),
                         _ => None,
                     })
                     .unwrap_or(0);
@@ -380,6 +389,23 @@ async fn inspect_schema(session: &Session, info: &ConnectionInfo) -> Result<Data
                     is_unique: is_primary_key,
                     comment: Some(kind),
                 });
+            }
+
+            // `position` can't be used in ORDER BY; order like cqlsh DESCRIBE instead.
+            let rank = |k: Option<&str>| match k {
+                Some("partition_key") => 0,
+                Some("clustering") => 1,
+                _ => 2,
+            };
+            columns.sort_by(|a, b| {
+                (rank(a.comment.as_deref()), a.ordinal, &a.name).cmp(&(
+                    rank(b.comment.as_deref()),
+                    b.ordinal,
+                    &b.name,
+                ))
+            });
+            for (i, c) in columns.iter_mut().enumerate() {
+                c.ordinal = u32::try_from(i).unwrap_or(u32::MAX);
             }
 
             objects.push(SchemaObject::Table(TableSchema {
@@ -475,10 +501,30 @@ fn cql_to_value(v: Option<CqlValue>) -> Value {
         Some(CqlValue::Counter(c)) => Value::Int(c.0),
         Some(CqlValue::Float(f)) => Value::Float(f64::from(f)),
         Some(CqlValue::Double(d)) => Value::Float(d),
-        Some(CqlValue::Decimal(d)) => Value::Decimal(format!("{d:?}")),
-        Some(CqlValue::Varint(v)) => Value::Decimal(format!("{v:?}")),
-        Some(CqlValue::Date(d)) => Value::Date(format!("{d:?}")),
-        Some(CqlValue::Time(t)) => Value::Time(format!("{t:?}")),
+        Some(CqlValue::Decimal(d)) => {
+            let (bytes, scale) = d.as_signed_be_bytes_slice_and_exponent();
+            Value::Decimal(with_scale(&varint_to_string(bytes), scale))
+        }
+        Some(CqlValue::Varint(v)) => Value::Decimal(varint_to_string(v.as_signed_bytes_be_slice())),
+        // Days since 1970-01-01, offset by 2^31.
+        Some(CqlValue::Date(d)) => {
+            let days = i64::from(d.0) - (1 << 31);
+            chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
+                .and_then(|e| e.checked_add_signed(chrono::Duration::days(days)))
+                .map_or_else(
+                    || Value::Text(days.to_string()),
+                    |d| Value::Date(d.to_string()),
+                )
+        }
+        // Nanoseconds since midnight.
+        Some(CqlValue::Time(t)) => {
+            let (secs, nanos) = (t.0.div_euclid(1_000_000_000), t.0.rem_euclid(1_000_000_000));
+            chrono::NaiveTime::from_num_seconds_from_midnight_opt(
+                u32::try_from(secs).unwrap_or(0),
+                u32::try_from(nanos).unwrap_or(0),
+            )
+            .map_or(Value::Null, |t| Value::Time(t.to_string()))
+        }
         Some(CqlValue::Timestamp(ts)) => {
             let dt = chrono::DateTime::from_timestamp_millis(ts.0).unwrap_or_default();
             Value::Timestamp(dt)
@@ -522,5 +568,82 @@ fn cql_to_value(v: Option<CqlValue>) -> Value {
         }
         Some(CqlValue::Empty) => Value::Null,
         Some(other) => Value::Text(format!("{other:?}")),
+    }
+}
+
+/// Exact decimal string of a big-endian two's-complement integer of any width.
+fn varint_to_string(bytes: &[u8]) -> String {
+    let negative = bytes.first().is_some_and(|b| b & 0x80 != 0);
+    let mut mag: Vec<u8> = bytes.to_vec();
+    if negative {
+        // Two's complement → magnitude: invert, then add one.
+        for b in &mut mag {
+            *b = !*b;
+        }
+        for b in mag.iter_mut().rev() {
+            let (v, carry) = b.overflowing_add(1);
+            *b = v;
+            if !carry {
+                break;
+            }
+        }
+    }
+    let mut digits = Vec::new();
+    while mag.iter().any(|&b| b != 0) {
+        let mut rem = 0u16;
+        for b in &mut mag {
+            let cur = (rem << 8) | u16::from(*b);
+            *b = (cur / 10) as u8;
+            rem = cur % 10;
+        }
+        digits.push(b'0' + rem as u8);
+    }
+    if digits.is_empty() {
+        return "0".into();
+    }
+    if negative {
+        digits.push(b'-');
+    }
+    digits.reverse();
+    String::from_utf8(digits).unwrap_or_default()
+}
+
+/// Insert a decimal point `scale` digits from the right of an integer string.
+fn with_scale(int: &str, scale: i32) -> String {
+    let (sign, digits) = int.strip_prefix('-').map_or(("", int), |d| ("-", d));
+    let Ok(scale) = usize::try_from(scale) else {
+        // Negative scale: multiply by 10^-scale.
+        return format!("{int}{}", "0".repeat(scale.unsigned_abs() as usize));
+    };
+    if scale == 0 {
+        return int.to_owned();
+    }
+    let padded = format!("{digits:0>width$}", width = scale + 1);
+    let (whole, frac) = padded.split_at(padded.len() - scale);
+    format!("{sign}{whole}.{frac}")
+}
+
+#[cfg(test)]
+mod numeric_tests {
+    use super::{varint_to_string, with_scale};
+
+    #[test]
+    fn varints_and_decimals() {
+        assert_eq!(varint_to_string(&[]), "0");
+        assert_eq!(varint_to_string(&[0x7f]), "127");
+        assert_eq!(varint_to_string(&[0xff]), "-1");
+        assert_eq!(varint_to_string(&[0x80]), "-128");
+        assert_eq!(varint_to_string(&[0x00, 0x80]), "128");
+        // 123456789012345678901234567890
+        let big = [1, 142, 233, 15, 246, 195, 115, 224, 238, 78, 63, 10, 210];
+        assert_eq!(varint_to_string(&big), "123456789012345678901234567890");
+        // -1234567 with scale 3
+        assert_eq!(
+            with_scale(&varint_to_string(&[237, 41, 121]), 3),
+            "-1234.567"
+        );
+        assert_eq!(with_scale("5", 3), "0.005");
+        assert_eq!(with_scale("-5", 2), "-0.05");
+        assert_eq!(with_scale("12", -2), "1200");
     }
 }

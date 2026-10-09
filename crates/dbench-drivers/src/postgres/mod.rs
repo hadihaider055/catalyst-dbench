@@ -187,16 +187,22 @@ impl Driver for PostgresDriver {
             client
                 .execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY", &[])
                 .await
-                .map_err(|e| CatalystError::query_failed(e.to_string()))?;
+                .map_err(query_err)?;
         }
 
         // Fetch server version.
-        let server_version = client
+        let full_version = client
             .query_one("SELECT version()", &[])
             .await
             .ok()
             .and_then(|r| r.try_get::<_, String>(0).ok())
-            .map(|v| v.split(' ').nth(1).unwrap_or("unknown").to_string());
+            .unwrap_or_default();
+        // "PostgreSQL 17.7 on …" vs "CockroachDB CCL v24.3.1 (…)".
+        let cockroach = full_version.starts_with("CockroachDB");
+        let server_version = full_version
+            .split(' ')
+            .find(|w| w.starts_with(|c: char| c.is_ascii_digit() || c == 'v'))
+            .map(|v| v.trim_start_matches('v').to_string());
 
         let info = ConnectionInfo {
             id: Uuid::new_v4(),
@@ -215,6 +221,7 @@ impl Driver for PostgresDriver {
 
         Ok(PostgresConnection {
             info,
+            cockroach,
             mode: config.mode,
             alive: true,
             client,
@@ -228,6 +235,8 @@ impl Driver for PostgresDriver {
 
 pub struct PostgresConnection {
     info: ConnectionInfo,
+    /// CockroachDB speaks the Postgres protocol but not all of its SQL (e.g. EXPLAIN options).
+    cockroach: bool,
     mode: ConnectionMode,
     alive: bool,
     client: tokio_postgres::Client,
@@ -251,7 +260,7 @@ impl Connection for PostgresConnection {
         let start = Instant::now();
 
         let query_text = if query.explain {
-            format!("EXPLAIN (ANALYZE, FORMAT JSON) {}", query.text)
+            explain_sql(&query.text, self.cockroach)
         } else {
             query.text.clone()
         };
@@ -263,11 +272,7 @@ impl Connection for PostgresConnection {
             .map(|p| p.as_ref() as &(dyn ToSql + Sync))
             .collect();
 
-        let stmt = self
-            .client
-            .prepare(&query_text)
-            .await
-            .map_err(|e| CatalystError::query_failed(e.to_string()))?;
+        let stmt = self.client.prepare(&query_text).await.map_err(query_err)?;
 
         let columns: Vec<Column> = stmt
             .columns()
@@ -293,7 +298,7 @@ impl Connection for PostgresConnection {
                 .client
                 .execute(&stmt, &param_refs)
                 .await
-                .map_err(|e| CatalystError::query_failed(e.to_string()))?;
+                .map_err(query_err)?;
 
             return Ok(QueryResult {
                 columns: vec![],
@@ -308,7 +313,7 @@ impl Connection for PostgresConnection {
             .client
             .query(&stmt, &param_refs)
             .await
-            .map_err(|e| CatalystError::query_failed(e.to_string()))?;
+            .map_err(query_err)?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -387,6 +392,19 @@ impl Connection for PostgresConnection {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// `EXPLAIN ANALYZE` actually runs the statement, so only reads get `ANALYZE`:
+/// "Explain" on an `UPDATE`/`DELETE` must never modify data.
+/// CockroachDB (same driver) has no `FORMAT JSON`; its text plan is shown as-is.
+fn explain_sql(sql: &str, cockroach: bool) -> String {
+    let analyze = !dbench_core::guard::is_sql_write(sql);
+    match (cockroach, analyze) {
+        (true, true) => format!("EXPLAIN ANALYZE {sql}"),
+        (true, false) => format!("EXPLAIN {sql}"),
+        (false, true) => format!("EXPLAIN (ANALYZE, FORMAT JSON) {sql}"),
+        (false, false) => format!("EXPLAIN (FORMAT JSON) {sql}"),
+    }
+}
 
 fn to_pg_params(params: &[QueryParam]) -> Vec<Box<dyn ToSql + Sync + Send>> {
     params
@@ -488,7 +506,254 @@ fn decode_numeric(raw: &[u8]) -> Option<String> {
     Some(out)
 }
 
+/// tokio-postgres' Display for server errors is just "db error"; surface the server's
+/// message, detail and hint instead.
+fn query_err(e: tokio_postgres::Error) -> CatalystError {
+    let msg = match e.as_db_error() {
+        Some(db) => {
+            let mut m = format!("{}: {}", db.severity(), db.message());
+            if let Some(d) = db.detail() {
+                m.push_str(&format!("\nDETAIL: {d}"));
+            }
+            if let Some(h) = db.hint() {
+                m.push_str(&format!("\nHINT: {h}"));
+            }
+            m
+        }
+        None => match std::error::Error::source(&e) {
+            Some(cause) => format!("{e}: {cause}"),
+            None => e.to_string(),
+        },
+    };
+    CatalystError::query_failed(msg)
+}
+
+/// Any column type, decoded from the binary wire format by [`pg_any`].
+struct PgAny(Value);
+
+impl<'a> postgres_types::FromSql<'a> for PgAny {
+    fn from_sql(
+        ty: &postgres_types::Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        Ok(PgAny(pg_any(ty, raw)))
+    }
+    fn accepts(_: &postgres_types::Type) -> bool {
+        true
+    }
+}
+
+/// Fallback decoder for types the typed path in [`extract_pg_value`] doesn't cover
+/// (money, interval, network, bit, geometry, arrays, enums, extensions…). Never NULL
+/// for a non-NULL value: unknown binary types fall back to text or bytes.
+fn pg_any(ty: &postgres_types::Type, raw: &[u8]) -> Value {
+    use postgres_types::{FromSql, Kind, Type};
+    fn get<'a, T: FromSql<'a>>(ty: &Type, raw: &'a [u8]) -> Option<T> {
+        T::from_sql(ty, raw).ok()
+    }
+    let be = |i: usize, n: usize| raw.get(i..i + n);
+    let i32_at = |i| be(i, 4).map(|b| i32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let i64_at = |i| be(i, 8).map(|b| i64::from_be_bytes(b.try_into().unwrap_or([0; 8])));
+    let f64_at = |i| be(i, 8).map(|b| f64::from_be_bytes(b.try_into().unwrap_or([0; 8])));
+
+    if let Kind::Array(member) = ty.kind() {
+        return decode_array(member, raw).map_or_else(|| Value::Bytes(raw.to_vec()), Value::Array);
+    }
+    if let Kind::Domain(base) = ty.kind() {
+        return pg_any(base, raw);
+    }
+    let v = match *ty {
+        Type::BOOL => get(ty, raw).map(Value::Bool),
+        Type::INT2 => get::<i16>(ty, raw).map(|v| Value::Int(v.into())),
+        Type::INT4 => get::<i32>(ty, raw).map(|v| Value::Int(v.into())),
+        Type::INT8 => get::<i64>(ty, raw).map(Value::Int),
+        Type::OID => get::<u32>(ty, raw).map(|v| Value::Int(v.into())),
+        Type::FLOAT4 => get::<f32>(ty, raw).map(|v| Value::Float(v.into())),
+        Type::FLOAT8 => get::<f64>(ty, raw).map(Value::Float),
+        Type::NUMERIC => decode_numeric(raw).map(Value::Decimal),
+        Type::UUID => get(ty, raw).map(Value::Uuid),
+        Type::BYTEA => Some(Value::Bytes(raw.to_vec())),
+        Type::DATE => get::<chrono::NaiveDate>(ty, raw).map(|d| Value::Date(d.to_string())),
+        Type::TIME => get::<chrono::NaiveTime>(ty, raw).map(|t| Value::Time(t.to_string())),
+        Type::TIMESTAMP => {
+            get::<chrono::NaiveDateTime>(ty, raw).map(|t| Value::Timestamp(t.and_utc()))
+        }
+        Type::TIMESTAMPTZ => get(ty, raw).map(Value::Timestamp),
+        Type::JSON | Type::JSONB => get(ty, raw).map(Value::Json),
+        // Cents; assumes the usual 2-decimal lc_monetary.
+        Type::MONEY => i64_at(0).map(|c| {
+            let sign = if c < 0 { "-" } else { "" };
+            Value::Decimal(format!("{sign}{}.{:02}", (c / 100).abs(), (c % 100).abs()))
+        }),
+        Type::INTERVAL => match (i64_at(0), i32_at(8), i32_at(12)) {
+            (Some(us), Some(days), Some(months)) => {
+                Some(Value::Text(format_interval(us, days, months)))
+            }
+            _ => None,
+        },
+        Type::TIMETZ => match (i64_at(0), i32_at(8)) {
+            (Some(us), Some(zone)) => Some(Value::Time(format_timetz(us, zone))),
+            _ => None,
+        },
+        Type::INET | Type::CIDR => decode_inet(raw).map(Value::Text),
+        Type::MACADDR | Type::MACADDR8 => Some(Value::Text(
+            raw.iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(":"),
+        )),
+        Type::POINT => match (f64_at(0), f64_at(8)) {
+            (Some(x), Some(y)) => Some(Value::Text(format!("({x},{y})"))),
+            _ => None,
+        },
+        Type::BIT | Type::VARBIT => i32_at(0).map(|len| {
+            let bits = (0..usize::try_from(len).unwrap_or(0))
+                .map(|i| {
+                    if raw
+                        .get(4 + i / 8)
+                        .is_some_and(|b| b & (0x80 >> (i % 8)) != 0)
+                    {
+                        '1'
+                    } else {
+                        '0'
+                    }
+                })
+                .collect();
+            Value::Text(bits)
+        }),
+        Type::TS_VECTOR => decode_tsvector(raw).map(Value::Text),
+        _ => None,
+    };
+    // Enums, xml, citext, ltree and most extension types send plain UTF-8 text.
+    v.unwrap_or_else(|| match std::str::from_utf8(raw) {
+        Ok(t) if !t.chars().any(|c| c.is_control() && !c.is_whitespace()) => {
+            Value::Text(t.to_owned())
+        }
+        _ => Value::Bytes(raw.to_vec()),
+    })
+}
+
+/// Binary array: ndim, has_null, elem oid, (len, lbound) per dim, then length-prefixed
+/// elements. Multi-dimensional arrays are flattened.
+fn decode_array(member: &postgres_types::Type, raw: &[u8]) -> Option<Vec<Value>> {
+    let word = |i: usize| {
+        raw.get(i..i + 4)
+            .map(|b| i32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let ndim = usize::try_from(word(0)?).ok()?;
+    let mut pos = 12 + ndim * 8;
+    let mut out = Vec::new();
+    while pos < raw.len() {
+        let len = word(pos)?;
+        pos += 4;
+        if len < 0 {
+            out.push(Value::Null);
+            continue;
+        }
+        let end = pos + usize::try_from(len).ok()?;
+        out.push(pg_any(member, raw.get(pos..end)?));
+        pos = end;
+    }
+    Some(out)
+}
+
+fn format_interval(us: i64, days: i32, months: i32) -> String {
+    let mut parts = Vec::new();
+    let plural = |n: i64, unit: &str| format!("{n} {unit}{}", if n.abs() == 1 { "" } else { "s" });
+    let (years, mons) = (i64::from(months) / 12, i64::from(months) % 12);
+    if years != 0 {
+        parts.push(plural(years, "year"));
+    }
+    if mons != 0 {
+        parts.push(format!(
+            "{mons} mon{}",
+            if mons.abs() == 1 { "" } else { "s" }
+        ));
+    }
+    if days != 0 {
+        parts.push(plural(days.into(), "day"));
+    }
+    if us != 0 || parts.is_empty() {
+        let sign = if us < 0 { "-" } else { "" };
+        let us = us.unsigned_abs();
+        let (h, m, s, frac) = (
+            us / 3_600_000_000,
+            us / 60_000_000 % 60,
+            us / 1_000_000 % 60,
+            us % 1_000_000,
+        );
+        let mut t = format!("{sign}{h:02}:{m:02}:{s:02}");
+        if frac != 0 {
+            t.push_str(format!(".{frac:06}").trim_end_matches('0'));
+        }
+        parts.push(t);
+    }
+    parts.join(" ")
+}
+
+/// `zone` is seconds *west* of UTC, as Postgres sends it.
+fn format_timetz(us: i64, zone: i32) -> String {
+    let t = chrono::NaiveTime::from_num_seconds_from_midnight_opt(
+        u32::try_from(us / 1_000_000).unwrap_or(0),
+        u32::try_from(us % 1_000_000 * 1000).unwrap_or(0),
+    )
+    .map(|t| t.to_string())
+    .unwrap_or_default();
+    let east = -zone;
+    let sign = if east < 0 { '-' } else { '+' };
+    let (h, m) = (east.abs() / 3600, east.abs() / 60 % 60);
+    if m == 0 {
+        format!("{t}{sign}{h:02}")
+    } else {
+        format!("{t}{sign}{h:02}:{m:02}")
+    }
+}
+
+/// family (2 = v4, 3 = v6), bits, is_cidr, nbytes, address.
+fn decode_inet(raw: &[u8]) -> Option<String> {
+    let (&family, &bits, &is_cidr) = (raw.first()?, raw.get(1)?, raw.get(2)?);
+    let addr = raw.get(4..)?;
+    let (ip, max): (std::net::IpAddr, u8) = match family {
+        2 => (<[u8; 4]>::try_from(addr).ok()?.into(), 32),
+        _ => (<[u8; 16]>::try_from(addr).ok()?.into(), 128),
+    };
+    Some(if is_cidr != 0 || bits != max {
+        format!("{ip}/{bits}")
+    } else {
+        ip.to_string()
+    })
+}
+
+/// count, then per lexeme: NUL-terminated text, u16 position count, u16 positions.
+fn decode_tsvector(raw: &[u8]) -> Option<String> {
+    let count = i32::from_be_bytes(raw.get(0..4)?.try_into().ok()?);
+    let mut pos = 4;
+    let mut lexemes = Vec::new();
+    for _ in 0..count {
+        let end = pos + raw.get(pos..)?.iter().position(|&b| b == 0)?;
+        let word = std::str::from_utf8(raw.get(pos..end)?).ok()?;
+        let npos = usize::from(u16::from_be_bytes(
+            raw.get(end + 1..end + 3)?.try_into().ok()?,
+        ));
+        lexemes.push(format!("'{word}'"));
+        pos = end + 3 + npos * 2;
+    }
+    Some(lexemes.join(" "))
+}
+
 fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType) -> Value {
+    let v = extract_typed(row, idx, col_type);
+    if !v.is_null() {
+        return v;
+    }
+    // Typed decode failed or the value is NULL: the catch-all decoder tells them apart.
+    row.try_get::<_, Option<PgAny>>(idx)
+        .ok()
+        .flatten()
+        .map_or(Value::Null, |p| p.0)
+}
+
+fn extract_typed(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType) -> Value {
     match col_type {
         ColumnType::Boolean => row
             .try_get::<_, bool>(idx)
@@ -557,7 +822,50 @@ fn extract_pg_value(row: &tokio_postgres::Row, idx: usize, col_type: &ColumnType
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_numeric, split_pem};
+    use super::{
+        decode_inet, decode_numeric, explain_sql, format_interval, format_timetz, split_pem,
+    };
+
+    #[test]
+    fn decodes_fallback_types() {
+        assert_eq!(format_interval(2 * 3_600_000_000, 1, 0), "1 day 02:00:00");
+        assert_eq!(
+            format_interval(1_500_000, 0, 14),
+            "1 year 2 mons 00:00:01.5"
+        );
+        assert_eq!(format_interval(-60_000_000, 0, 0), "-00:01:00");
+        assert_eq!(format_interval(0, 0, 0), "00:00:00");
+        assert_eq!(
+            format_timetz((13 * 3600 + 45 * 60 + 1) * 1_000_000, -7200),
+            "13:45:01+02"
+        );
+        assert_eq!(format_timetz(0, 19_800), "00:00:00-05:30");
+        assert_eq!(
+            decode_inet(&[2, 32, 0, 4, 10, 0, 0, 1]).unwrap(),
+            "10.0.0.1"
+        );
+        assert_eq!(
+            decode_inet(&[2, 8, 1, 4, 10, 0, 0, 0]).unwrap(),
+            "10.0.0.0/8"
+        );
+    }
+
+    #[test]
+    fn explain_never_analyzes_writes() {
+        assert_eq!(explain_sql("SELECT 1", true), "EXPLAIN ANALYZE SELECT 1");
+        assert_eq!(explain_sql("DELETE FROM t", true), "EXPLAIN DELETE FROM t");
+        assert!(explain_sql("SELECT * FROM t", false).starts_with("EXPLAIN (ANALYZE,"));
+        for w in [
+            "DELETE FROM t",
+            "UPDATE t SET a = 1",
+            "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x",
+        ] {
+            assert!(
+                explain_sql(w, false).starts_with("EXPLAIN (FORMAT JSON)"),
+                "{w}"
+            );
+        }
+    }
 
     /// Encode like Postgres' binary NUMERIC send format.
     fn numeric(weight: i16, sign: u16, dscale: u16, digits: &[i16]) -> Vec<u8> {

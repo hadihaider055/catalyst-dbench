@@ -140,10 +140,20 @@ export function quoteIdent(dbType: string, name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-export function sqlValue(raw: Row["values"][number]): string {
+/**
+ * Quote a string literal. MySQL/MariaDB and ClickHouse also treat `\` as an
+ * escape, so a value ending in `\` would otherwise swallow the closing quote
+ * (`'x\' OR 1=1 -- '`) and inject into the statement.
+ */
+export function sqlString(dbType: string, s: string): string {
+  const esc = dbType === "mysql" || dbType === "clickhouse" ? s.replace(/\\/g, "\\\\") : s;
+  return `'${esc.replace(/'/g, "''")}'`;
+}
+
+export function sqlValue(raw: Row["values"][number], dbType: string): string {
   if (!raw || raw.type === "null") return "NULL";
   if (raw.type === "bool") return raw.v ? "TRUE" : "FALSE";
-  if (raw.type === "int" || raw.type === "float" || raw.type === "decimal") return String(raw.v);
-  const str = displayValue(raw);
-  return `'${str.replace(/'/g, "''")}'`;
+  if (raw.type === "int" || raw.type === "float") return String(raw.v);
+  if (raw.type === "decimal" && /^-?\d+(\.\d+)?$/.test(raw.v)) return raw.v;
+  return sqlString(dbType, displayValue(raw));
 }

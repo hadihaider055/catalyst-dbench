@@ -500,6 +500,7 @@ export default function Layout() {
       {showImportDialog && activeTab && (
         <ImportDialog
           connectionId={activeTab.connection_id}
+          dbType={activeTab.db_type}
           onClose={() => setShowImportDialog(false)}
           onSuccess={(n) => {
             setShowImportDialog(false);

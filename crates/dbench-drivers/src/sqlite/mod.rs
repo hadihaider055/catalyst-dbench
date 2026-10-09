@@ -11,6 +11,7 @@ use dbench_core::{
     connection::Connection,
     driver::{ConnectionConfig, Driver},
     error::CatalystError,
+    guard::quote_ident,
     query::Query,
     result::{Column, ColumnType, QueryResult, Row, Value},
     schema::{ColumnSchema, DatabaseSchema, ForeignKeySchema, SchemaObject, TableSchema},
@@ -284,7 +285,7 @@ impl Connection for SqliteConnection {
                 if kind == "table" {
                     // Fetch columns via PRAGMA table_info.
                     let mut col_stmt = conn
-                        .prepare(&format!("PRAGMA table_info(\"{}\")", name))
+                        .prepare(&format!("PRAGMA table_info({})", quote_ident(&name, '"')))
                         .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
                     let mut col_rows = col_stmt
@@ -318,7 +319,10 @@ impl Connection for SqliteConnection {
                     // Foreign keys via PRAGMA foreign_key_list.
                     // Returns: id, seq, table, from, to, on_update, on_delete, match
                     let mut fk_stmt = conn
-                        .prepare(&format!("PRAGMA foreign_key_list(\"{}\")", name))
+                        .prepare(&format!(
+                            "PRAGMA foreign_key_list({})",
+                            quote_ident(&name, '"')
+                        ))
                         .map_err(|e| CatalystError::SchemaError(e.to_string()))?;
 
                     // Group by FK id (one FK constraint can span multiple columns).
@@ -354,9 +358,11 @@ impl Connection for SqliteConnection {
 
                     // Row count estimate.
                     let row_count: Option<u64> = conn
-                        .query_row(&format!("SELECT COUNT(*) FROM \"{}\"", name), [], |r| {
-                            r.get::<_, i64>(0)
-                        })
+                        .query_row(
+                            &format!("SELECT COUNT(*) FROM {}", quote_ident(&name, '"')),
+                            [],
+                            |r| r.get::<_, i64>(0),
+                        )
                         .ok()
                         .map(|n| n as u64);
 

@@ -21,13 +21,13 @@ The builds aren't code-signed yet. On macOS, right-click the app → **Open** th
 
 ## Screenshots
 
-| Schema browser and data grid | ER diagram |
-| --- | --- |
-| ![Data grid](docs/screenshots/grid.png) | ![ER diagram](docs/screenshots/er-diagram.png) |
-| **New connection** | **Explain plan** |
-| ![Connection dialog](docs/screenshots/connection.png) | ![Explain plan](docs/screenshots/explain.png) |
-| **Dark theme** | |
-| ![Dark theme](docs/screenshots/dark.png) | |
+| Schema browser and data grid                          | ER diagram                                     |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| ![Data grid](docs/screenshots/grid.png)               | ![ER diagram](docs/screenshots/er-diagram.png) |
+| **New connection**                                    | **Explain plan**                               |
+| ![Connection dialog](docs/screenshots/connection.png) | ![Explain plan](docs/screenshots/explain.png)  |
+| **Dark theme**                                        |                                                |
+| ![Dark theme](docs/screenshots/dark.png)              |                                                |
 
 ## Features
 
@@ -53,3 +53,5 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md); to report a v
 ## License
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your option.
+
+Made with ❤️ by [Hadi Haider](https://linkedin.com/in/hadi-haider)

@@ -6,7 +6,7 @@ use dbench_core::{
     connection::Connection,
     driver::{ConnectionConfig, Driver},
     error::CatalystError,
-    guard::is_sql_write,
+    guard::{is_sql_write, strip_comments_and_strings},
     query::Query,
     result::{Column, ColumnType, QueryResult, Row, Value},
     schema::DatabaseSchema,
@@ -239,10 +239,23 @@ impl MssqlConnection {
     }
 }
 
+/// T-SQL runs a batch's first statement as a procedure call even without `EXEC`
+/// (`sp_rename 'a', 'b'`, `xp_cmdshell '…'`), so anything not opening with a
+/// known read keyword is treated as a write on read-only connections.
+fn is_implicit_exec(sql: &str) -> bool {
+    let stripped = strip_comments_and_strings(sql);
+    let first = stripped
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .find(|w| !w.is_empty());
+    !first.is_some_and(|w| ["SELECT", "WITH"].iter().any(|k| k.eq_ignore_ascii_case(w)))
+}
+
 impl Connection for MssqlConnection {
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
         // SQL Server has no read-only session switch; enforce client-side.
-        if !self.mode.allows_writes() && is_sql_write(&query.text) {
+        if !self.mode.allows_writes()
+            && (is_sql_write(&query.text) || is_implicit_exec(&query.text))
+        {
             return Err(CatalystError::ReadOnlyViolation);
         }
         let start = Instant::now();
@@ -430,10 +443,12 @@ fn to_value(d: ColumnData<'static>) -> Value {
             .as_ref()
             .map_or(Value::Null, |x| Value::Text(x.to_string())),
         ColumnData::DateTime(_) | ColumnData::SmallDateTime(_) | ColumnData::DateTime2(_) => ts(&d),
-        ColumnData::DateTimeOffset(_) => chrono::DateTime::<chrono::Utc>::from_sql(&d)
+        // tiberius' `DateTime<Utc>` decode subtracts the offset from a value that is
+        // already UTC on the wire; its `FixedOffset` decode is correct.
+        ColumnData::DateTimeOffset(_) => chrono::DateTime::<chrono::FixedOffset>::from_sql(&d)
             .ok()
             .flatten()
-            .map_or(Value::Null, Value::Timestamp),
+            .map_or(Value::Null, |t| Value::Timestamp(t.to_utc())),
         ColumnData::Date(_) => chrono::NaiveDate::from_sql(&d)
             .ok()
             .flatten()
@@ -442,5 +457,23 @@ fn to_value(d: ColumnData<'static>) -> Value {
             .ok()
             .flatten()
             .map_or(Value::Null, |x| Value::Time(x.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_implicit_exec;
+
+    #[test]
+    fn bare_procedure_call_is_not_a_read() {
+        assert!(!is_implicit_exec("SELECT * FROM t"));
+        assert!(!is_implicit_exec(
+            "-- c\n;WITH x AS (SELECT 1 a) SELECT a FROM x"
+        ));
+        assert!(!is_implicit_exec("(SELECT 1) UNION (SELECT 2)"));
+        assert!(is_implicit_exec("sp_rename 'a', 'b'"));
+        assert!(is_implicit_exec("xp_cmdshell 'whoami'"));
+        assert!(is_implicit_exec("[dbo].[purge_all]"));
+        assert!(is_implicit_exec("/* SELECT */ master..sp_who"));
     }
 }

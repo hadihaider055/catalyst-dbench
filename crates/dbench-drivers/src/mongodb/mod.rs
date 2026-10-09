@@ -257,12 +257,8 @@ impl Connection for MongoConnection {
             .ok_or_else(|| CatalystError::query_failed("Query must be a JSON object"))?;
 
         // Write guard.
-        if !self.mode.allows_writes() {
-            for op in &["insert", "update", "delete", "drop", "create", "rename"] {
-                if obj.contains_key(*op) {
-                    return Err(CatalystError::ReadOnlyViolation);
-                }
-            }
+        if !self.mode.allows_writes() && is_mongo_write(obj) {
+            return Err(CatalystError::ReadOnlyViolation);
         }
 
         // Allow callers to target a specific database for this operation.
@@ -658,6 +654,52 @@ impl Connection for MongoConnection {
 
 /// Coerce string values in a filter document to ObjectId where possible.
 /// Needed because _id is stored as ObjectId but the frontend sends back a hex string.
+/// Raw `{"command": {...}}` names allowed on read-only connections.
+const READ_COMMANDS: &[&str] = &[
+    "find",
+    "aggregate",
+    "count",
+    "distinct",
+    "listCollections",
+    "listIndexes",
+    "listDatabases",
+    "dbStats",
+    "collStats",
+    "serverStatus",
+    "buildInfo",
+    "hostInfo",
+    "ping",
+    "connectionStatus",
+];
+
+/// Whether a query object could modify data: a write operation, an aggregation
+/// with a `$out`/`$merge` stage, or a raw command that isn't a known read.
+fn is_mongo_write(obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+    fn writes_stage(pipeline: Option<&serde_json::Value>) -> bool {
+        pipeline.and_then(|p| p.as_array()).is_some_and(|stages| {
+            stages.iter().any(|s| {
+                s.as_object()
+                    .is_some_and(|o| o.contains_key("$out") || o.contains_key("$merge"))
+            })
+        })
+    }
+    const WRITE_OPS: &[&str] = &["insert", "update", "delete", "drop", "create", "rename"];
+    if WRITE_OPS.iter().any(|op| obj.contains_key(*op)) || writes_stage(obj.get("pipeline")) {
+        return true;
+    }
+    match obj.get("command") {
+        // The server treats the first key as the command name.
+        Some(serde_json::Value::Object(cmd)) => {
+            !cmd.keys()
+                .next()
+                .is_some_and(|name| READ_COMMANDS.contains(&name.as_str()))
+                || writes_stage(cmd.get("pipeline"))
+        }
+        Some(_) => true,
+        None => false,
+    }
+}
+
 fn coerce_objectids(doc: Document) -> Document {
     doc.into_iter()
         .map(|(k, v)| {
@@ -835,5 +877,39 @@ fn docs_to_result(docs: Vec<Document>, duration_ms: u64) -> QueryResult {
         rows_affected: None,
         duration_ms,
         explain_plan: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_mongo_write;
+
+    fn write(q: &str) -> bool {
+        let v: serde_json::Value = serde_json::from_str(q).unwrap();
+        is_mongo_write(v.as_object().unwrap())
+    }
+
+    #[test]
+    fn read_only_guard_catches_indirect_writes() {
+        assert!(!write(r#"{"find":"users","filter":{}}"#));
+        assert!(!write(
+            r#"{"aggregate":"users","pipeline":[{"$match":{}}]}"#
+        ));
+        assert!(!write(r#"{"command":{"listDatabases":1},"db":"admin"}"#));
+        assert!(write(r#"{"delete":"users","deletes":[]}"#));
+        assert!(write(
+            r#"{"aggregate":"users","pipeline":[{"$out":"copy"}]}"#
+        ));
+        assert!(write(
+            r#"{"aggregate":"users","pipeline":[{"$merge":{"into":"c"}}]}"#
+        ));
+        assert!(write(r#"{"command":{"dropDatabase":1}}"#));
+        assert!(write(
+            r#"{"command":{"findAndModify":"users","remove":true}}"#
+        ));
+        assert!(write(
+            r#"{"command":{"aggregate":"users","pipeline":[{"$out":"c"}],"cursor":{}}}"#
+        ));
+        assert!(write(r#"{"command":"dropDatabase"}"#));
     }
 }

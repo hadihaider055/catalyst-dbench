@@ -81,6 +81,27 @@ fn build_tls(payload: &ConnectionPayload) -> TlsConfig {
     }
 }
 
+/// The frontend re-inserts the keychain password into URI hosts
+/// (`mongodb://user:pass@…`) right before connecting; never log it.
+fn redact_uri_password(host: &str) -> String {
+    let Some(scheme_end) = host.find("://").map(|i| i + 3) else {
+        return host.to_string();
+    };
+    let authority_end = host[scheme_end..]
+        .find(['/', '?', '#'])
+        .map_or(host.len(), |i| scheme_end + i);
+    let Some(at) = host[scheme_end..authority_end]
+        .rfind('@')
+        .map(|i| scheme_end + i)
+    else {
+        return host.to_string();
+    };
+    match host[scheme_end..at].find(':').map(|i| scheme_end + i) {
+        Some(colon) => format!("{}:***{}", &host[..colon], &host[at..]),
+        None => host.to_string(),
+    }
+}
+
 /// Establish an SSH tunnel if the payload requests one.
 /// Returns `(effective_host, effective_port, Option<SshTunnel>)`.
 async fn maybe_ssh(
@@ -374,7 +395,7 @@ pub async fn add_connection(
 ) -> Result<ConnectionResponse, String> {
     tracing::info!(
         db_type = ?payload.db_type,
-        host = %payload.host,
+        host = %redact_uri_password(&payload.host),
         database = %payload.database,
         ssh = payload.ssh_enabled.unwrap_or(false),
         "Opening connection"
@@ -464,6 +485,7 @@ pub async fn remove_connection(
     connection_id: String,
 ) -> Result<(), String> {
     let id = Uuid::parse_str(&connection_id).map_err(|e| e.to_string())?;
+    state.ssh_tunnels.remove(&id);
     let _ = state.registry.remove(id);
     // Best-effort keychain cleanup — ignore errors (entry may not exist).
     let _ = KeychainStore::for_password(&connection_id).delete();
@@ -600,4 +622,20 @@ pub async fn list_databases(
         .collect();
 
     Ok(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_uri_password;
+
+    #[test]
+    fn uri_password_never_logged() {
+        assert_eq!(
+            redact_uri_password("mongodb://u:p%40ss@h:27017/db?x=1"),
+            "mongodb://u:***@h:27017/db?x=1"
+        );
+        assert_eq!(redact_uri_password("mongodb://u@h/db"), "mongodb://u@h/db");
+        assert_eq!(redact_uri_password("db.example.com"), "db.example.com");
+        assert_eq!(redact_uri_password("redis://:pw@h"), "redis://:***@h");
+    }
 }

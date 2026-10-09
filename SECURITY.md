@@ -10,28 +10,27 @@ DBench handles live database connections and credentials. Security is not an aft
 
 Please report security vulnerabilities via:
 
-- **Email**: security@catalystdbench.dev (PGP key available at `/pgp-key.asc`)
+- **Email**: hadihaider.business@gmail.com (PGP key available at `/pgp-key.asc`)
 - **GitHub Security Advisory**: [Report a vulnerability](https://github.com/hadihaider055/catalyst-dbench/security/advisories/new)
 
-We will acknowledge receipt within **48 hours** and aim to provide a patch within **14 days** for critical issues.
-
 Please include:
+
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
 - Suggested fix (if any)
 
-We follow [responsible disclosure](https://en.wikipedia.org/wiki/Responsible_disclosure). We will credit you in the release notes unless you prefer anonymity.
+I follow [responsible disclosure](https://en.wikipedia.org/wiki/Responsible_disclosure) and will credit you in the release notes unless you prefer to stay anonymous.
 
 ---
 
 ## Supported Versions
 
-| Version | Security Fixes |
-|---------|---------------|
-| latest stable | Yes |
+| Version        | Security Fixes      |
+| -------------- | ------------------- |
+| latest stable  | Yes                 |
 | previous minor | Yes (critical only) |
-| older | No |
+| older          | No                  |
 
 ---
 

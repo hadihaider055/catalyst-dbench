@@ -16,7 +16,10 @@ use dbench_core::{
     Result,
 };
 use dbench_macros::ConnectionConfig;
-use redis::{aio::ConnectionManager, Client, RedisResult, Value as RedisValue};
+use redis::{
+    aio::ConnectionManager, Client, ConnectionAddr, RedisConnectionInfo, RedisResult,
+    Value as RedisValue,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -84,31 +87,31 @@ impl Driver for RedisDriver {
     async fn connect(&self, config: &Self::Config) -> Result<Self::Connection> {
         config.validate()?;
 
-        let scheme = if config.tls { "rediss" } else { "redis" };
-
-        // Build URL: redis://[user:pass@]host:port/db_index
-        let url = match (&config.username, &config.password) {
-            (Some(user), Some(pass)) => {
-                format!(
-                    "{}://{}:{}@{}:{}/{}",
-                    scheme, user, pass, config.host, config.port, config.db_index
-                )
+        // Structured connection info rather than a `redis://user:pass@host` URL: an
+        // unencoded password containing `@`, `/` or `#` would re-target the URL
+        // (and send part of the password to a different host).
+        let addr = if config.tls {
+            ConnectionAddr::TcpTls {
+                host: config.host.clone(),
+                port: config.port,
+                insecure: false,
+                tls_params: None,
             }
-            (None, Some(pass)) => {
-                format!(
-                    "{}://:{}@{}:{}/{}",
-                    scheme, pass, config.host, config.port, config.db_index
-                )
-            }
-            _ => format!(
-                "{}://{}:{}/{}",
-                scheme, config.host, config.port, config.db_index
-            ),
+        } else {
+            ConnectionAddr::Tcp(config.host.clone(), config.port)
+        };
+        let conn_info = redis::ConnectionInfo {
+            addr,
+            redis: RedisConnectionInfo {
+                db: i64::from(config.db_index),
+                username: config.username.clone(),
+                password: config.password.clone(),
+            },
         };
 
         tracing::info!(host = %config.host, port = config.port, db = config.db_index, "Connecting to Redis");
 
-        let client = Client::open(url.as_str()).map_err(|e| {
+        let client = Client::open(conn_info).map_err(|e| {
             CatalystError::connection_failed(DatabaseType::Redis, &config.host, e.to_string())
         })?;
 
@@ -208,10 +211,24 @@ const READ_COMMANDS: &[&str] = &[
     "DBSIZE",
     "TIME",
     "COMMAND",
-    "CLIENT",
     "OBJECT",
-    "DEBUG",
 ];
+
+/// `CLIENT` subcommands that only read (`CLIENT KILL`/`PAUSE`/`NO-EVICT` are admin writes).
+const READ_CLIENT_SUBCOMMANDS: &[&str] = &["LIST", "INFO", "GETNAME", "ID"];
+
+/// Whether `parts` (command + args) is safe on a read-only connection.
+fn is_redis_read(parts: &[String]) -> bool {
+    let Some(cmd) = parts.first().map(|c| c.to_uppercase()) else {
+        return false;
+    };
+    if cmd == "CLIENT" {
+        return parts
+            .get(1)
+            .is_some_and(|s| READ_CLIENT_SUBCOMMANDS.contains(&s.to_uppercase().as_str()));
+    }
+    READ_COMMANDS.contains(&cmd.as_str())
+}
 
 impl Connection for RedisConnection {
     async fn execute(&mut self, query: &Query) -> Result<QueryResult> {
@@ -231,7 +248,7 @@ impl Connection for RedisConnection {
         let cmd_name = parts[0].to_uppercase();
 
         // Read-only guard.
-        if !self.mode.allows_writes() && !READ_COMMANDS.contains(&cmd_name.as_str()) {
+        if !self.mode.allows_writes() && !is_redis_read(&parts) {
             return Err(CatalystError::ReadOnlyViolation);
         }
 
@@ -484,6 +501,33 @@ fn redis_value_to_result(cmd: &str, val: RedisValue, duration_ms: u64) -> QueryR
                 duration_ms,
                 explain_plan: None,
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_redis_read;
+
+    fn read(cmd: &str) -> bool {
+        let parts: Vec<String> = cmd.split_whitespace().map(String::from).collect();
+        is_redis_read(&parts)
+    }
+
+    #[test]
+    fn read_only_allowlist() {
+        assert!(read("get k"));
+        assert!(read("CLIENT LIST"));
+        for w in [
+            "SET k v",
+            "EVAL x 0",
+            "DEBUG SLEEP 10",
+            "CLIENT KILL ID 1",
+            "CLIENT PAUSE 1000",
+            "CLIENT",
+            "FLUSHALL",
+        ] {
+            assert!(!read(w), "{w}");
         }
     }
 }

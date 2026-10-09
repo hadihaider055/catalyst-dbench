@@ -32,6 +32,12 @@ DBENCH_LIVE_MSSQL='Dbench!2024' DBENCH_LIVE_SURREAL=1 DBENCH_LIVE_ES=1 DBENCH_LI
   cargo test -p dbench-drivers --features all --test live -- --nocapture
 ```
 
+The type and query matrix checks every driver against real servers: each common column type reads back with its value (never a silent NULL), plus schema browsing, explain, batches, read-only blocking, error messages, and complex SQL (joins, subqueries, CTEs, window functions, set operations). Start the servers from the `docker run` lines in `live.rs` (plus local Postgres, MySQL and Redis), then:
+
+```bash
+DBENCH_MATRIX=1 cargo test -p dbench-drivers --features all --test matrix -- --nocapture --test-threads=1
+```
+
 ## Adding a database
 
 - **It speaks an existing protocol** (Postgres, MySQL, MongoDB, Redis, CQL, …): just add a preset to `PRESETS` in `frontend/src/components/ConnectionDialog/index.tsx`.

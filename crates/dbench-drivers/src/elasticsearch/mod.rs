@@ -40,6 +40,18 @@ const READ_ENDPOINTS: &[&str] = &[
     "_analyze",
 ];
 
+/// Write endpoints: a `POST` touching any of these is never a read, even when
+/// another segment looks like one (`/logs/_doc/_search` indexes a doc with id `_search`).
+const WRITE_ENDPOINTS: &[&str] = &[
+    "_doc",
+    "_create",
+    "_update",
+    "_bulk",
+    "_delete_by_query",
+    "_update_by_query",
+    "_reindex",
+];
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -441,9 +453,16 @@ fn is_read_request(method: &Method, path: &str) -> bool {
     if *method != Method::POST {
         return false;
     }
-    let path = path.split('?').next().unwrap_or_default();
+    let path = path.split(['?', '#']).next().unwrap_or_default();
     // `_sql/close` frees a cursor; everything else under `_sql` is a read.
-    path.split('/').any(|seg| READ_ENDPOINTS.contains(&seg)) && !path.contains("_delete_by_query")
+    let segs: Vec<&str> = path.split('/').collect();
+    // Dot segments / percent-encoding are normalised by the URL parser, so
+    // `/_search/../logs/_update_by_query` would otherwise pass as a "_search".
+    !path.contains('%')
+        && segs
+            .iter()
+            .all(|s| !matches!(*s, "." | "..") && !WRITE_ENDPOINTS.contains(s))
+        && segs.iter().any(|seg| READ_ENDPOINTS.contains(seg))
 }
 
 /// Turn a console response into a grid: search hits → one row per document,
@@ -552,5 +571,19 @@ mod tests {
         assert!(!is_read_request(&Method::POST, "/logs/_delete_by_query"));
         assert!(!is_read_request(&Method::DELETE, "/logs"));
         assert!(!is_read_request(&Method::PUT, "/logs/_search"));
+        assert!(!is_read_request(
+            &Method::POST,
+            "/_search/../logs/_update_by_query"
+        ));
+        assert!(!is_read_request(
+            &Method::POST,
+            "/_search/%2e%2e/logs/_update_by_query"
+        ));
+        assert!(!is_read_request(
+            &Method::POST,
+            "/logs/_update_by_query#/_search"
+        ));
+        assert!(!is_read_request(&Method::POST, "/logs/_doc/_search"));
+        assert!(is_read_request(&Method::POST, "/logs/_explain/1"));
     }
 }

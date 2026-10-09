@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import type { ConnectionInfo, DatabaseSchema, HistoryEntry, QueryTab, SavedConnection, SavedQuery } from "@/lib/types";
-import { addConnection, getSchema, getCredential, storeCredential } from "@/lib/commands";
+import { addConnection, closeConnection, getSchema, getCredential, storeCredential } from "@/lib/commands";
 import { generateId, splitUriPassword } from "@/lib/utils";
 
 export interface Toast {
@@ -144,7 +144,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   setActiveConnections: (conns) => set({ activeConnections: conns }),
   addActiveConnection: (conn) =>
     set((s) => ({ activeConnections: [...s.activeConnections.filter((c) => c.id !== conn.id), conn] })),
-  removeActiveConnection: (id) =>
+  removeActiveConnection: (id) => {
+    // Close it in the backend too, or the DB session and any SSH tunnel
+    // (a 127.0.0.1 port forward any local process can use) stay open.
+    closeConnection(id).catch(() => {/* already closed */});
     set((s) => ({
       activeConnections: s.activeConnections.filter((c) => c.id !== id),
       schemas: Object.fromEntries(Object.entries(s.schemas).filter(([k]) => k !== id)),
@@ -153,7 +156,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           ? { ...t, result: undefined, error: "Disconnected. Reconnect to run queries.", running: false }
           : t
       ),
-    })),
+    }));
+  },
 
   setSavedConnections: (conns) => set({ savedConnections: conns }),
   upsertSavedConnection: (conn) => {
@@ -263,6 +267,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
     const newInfo = result.info;
     const newId = newInfo.id;
+    // The old connection (and its SSH tunnel) is replaced: close it in the backend.
+    closeConnection(connectionId).catch(() => {/* already closed */});
 
     if (password) {
       try { await storeCredential(newId, password); } catch { /* ignore */ }

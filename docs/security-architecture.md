@@ -6,7 +6,7 @@ This document describes the complete security model for Catalyst DBench. Every l
 
 ## Threat Model
 
-DBench is a local desktop application that holds credentials to production databases. The threats we protect against:
+DBench is a local desktop application that holds credentials to production databases. The threats it protects against:
 
 | Threat                       | Mitigation                               |
 | ---------------------------- | ---------------------------------------- |
@@ -270,13 +270,15 @@ Each log entry includes the SHA-256 hash of the previous entry, forming a chain.
 - Default location: `~/.local/share/catalyst/audit/audit-YYYY-MM.jsonl`
 - Monthly rotation
 - Configurable retention (default: 90 days)
-- Optional: forward to syslog, Splunk, Datadog (enterprise)
+- Planned: forwarding to syslog, Splunk or Datadog
 
 ---
 
-## Layer 7 — Secrets Manager Integration
+## Layer 7 — Secrets Manager Integration (planned)
 
-For teams and enterprise users, Catalyst DBench can fetch credentials from external secrets managers instead of the OS keychain:
+> Not implemented yet. This section describes the intended design.
+
+DBench will be able to fetch credentials from external secrets managers instead of the OS keychain:
 
 | Provider             | Auth Method                         |
 | -------------------- | ----------------------------------- |

@@ -4,6 +4,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { executeBatch } from "@/lib/commands";
 import { cn } from "@/lib/utils";
+import { quoteIdent, sqlString } from "../ResultsGrid/helpers";
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
 
@@ -35,14 +36,14 @@ function parseCsv(text: string): { headers: string[]; rows: string[][] } {
   return { headers, rows };
 }
 
-function buildInsertSql(table: string, headers: string[], row: string[]): string {
-  const cols = headers.map((h) => `"${h}"`).join(", ");
+function buildInsertSql(dbType: string, table: string, headers: string[], row: string[]): string {
+  // Headers and values come from the file: always quote/escape them.
+  const cols = headers.map((h) => quoteIdent(dbType, h)).join(", ");
   const vals = row
     .map((v) => {
       if (v === "" || v.toLowerCase() === "null") return "NULL";
-      const n = Number(v);
-      if (!isNaN(n) && v !== "") return v;
-      return `'${v.replace(/'/g, "''")}'`;
+      if (/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v)) return v;
+      return sqlString(dbType, v);
     })
     .join(", ");
   return `INSERT INTO ${table} (${cols}) VALUES (${vals});`;
@@ -52,13 +53,14 @@ function buildInsertSql(table: string, headers: string[], row: string[]): string
 
 interface Props {
   connectionId: string;
+  dbType: string;
   onClose: () => void;
   onSuccess: (rowCount: number) => void;
 }
 
 const BATCH_SIZE = 50;
 
-export default function ImportDialog({ connectionId, onClose, onSuccess }: Props) {
+export default function ImportDialog({ connectionId, dbType, onClose, onSuccess }: Props) {
   const [table, setTable] = useState("");
   const [file, setFile] = useState<{ name: string; headers: string[]; rows: string[][] } | null>(null);
   const [_mode, setMode] = useState<"csv" | "json">("csv");
@@ -133,7 +135,7 @@ export default function ImportDialog({ connectionId, onClose, onSuccess }: Props
       for (let i = 0; i < file.rows.length; i += BATCH_SIZE) {
         if (abortRef.current) break;
         const batch = file.rows.slice(i, i + BATCH_SIZE);
-        const sqls = batch.map((row) => buildInsertSql(table.trim(), file.headers, row));
+        const sqls = batch.map((row) => buildInsertSql(dbType, table.trim(), file.headers, row));
         await executeBatch(connectionId, sqls);
         imported += batch.length;
         setProgress(Math.round((imported / file.rows.length) * 100));

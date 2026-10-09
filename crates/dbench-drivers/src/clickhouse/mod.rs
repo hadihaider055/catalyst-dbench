@@ -164,14 +164,18 @@ impl Connection for ClickhouseConnection {
         }
 
         let start = Instant::now();
-        // Append FORMAT JSONCompact unless the query already specifies a FORMAT.
-        let sql = if query.text.to_uppercase().contains("FORMAT ") {
-            query.text.clone()
+        let text = query.text.trim_end().trim_end_matches(';');
+        let text = if query.explain {
+            format!("EXPLAIN {text}")
         } else {
-            format!(
-                "{} FORMAT JSONCompact",
-                query.text.trim_end().trim_end_matches(';')
-            )
+            text.to_owned()
+        };
+        // Only row-returning statements take a FORMAT clause; on INSERT … VALUES it
+        // would be parsed as part of the data.
+        let sql = if returns_rows(&text) && !text.to_uppercase().contains("FORMAT ") {
+            format!("{text} FORMAT JSONCompact")
+        } else {
+            text
         };
 
         let raw = send_raw(
@@ -189,7 +193,8 @@ impl Connection for ClickhouseConnection {
 
     async fn inspect_schema(&mut self) -> Result<DatabaseSchema> {
         let db = &self.info.database;
-        let db_lit = dbench_core::guard::quote_literal(db);
+        // ClickHouse also treats `\` as an escape inside string literals.
+        let db_lit = dbench_core::guard::quote_literal(&db.replace('\\', "\\\\"));
 
         // Columns for all user tables in the connected database.
         let col_sql = format!(
@@ -427,6 +432,20 @@ struct ChStats {
     elapsed: f64,
 }
 
+fn returns_rows(sql: &str) -> bool {
+    let code = dbench_core::guard::strip_comments_and_strings(sql);
+    let first = code
+        .trim_start_matches(|c: char| c.is_whitespace() || c == '(')
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    matches!(
+        first.as_str(),
+        "SELECT" | "WITH" | "SHOW" | "DESCRIBE" | "DESC" | "EXISTS" | "EXPLAIN"
+    )
+}
+
 fn parse_response(raw: &str, fallback_ms: u64) -> Result<QueryResult> {
     // DDL and INSERT responses are empty or just "Ok."
     let trimmed = raw.trim();
@@ -526,7 +545,9 @@ fn json_to_value(v: serde_json::Value, col_type: &str) -> Value {
             } else if inner.starts_with("Decimal") {
                 Value::Decimal(n.to_string())
             } else {
-                Value::Int(n.as_i64().unwrap_or(0))
+                // UInt64 above i64::MAX: keep the exact digits rather than wrapping.
+                n.as_i64()
+                    .map_or_else(|| Value::Decimal(n.to_string()), Value::Int)
             }
         }
         serde_json::Value::String(s) => {
@@ -545,8 +566,9 @@ fn json_to_value(v: serde_json::Value, col_type: &str) -> Value {
             } else if inner.starts_with("Decimal") {
                 Value::Decimal(s)
             } else if inner.starts_with("Int") || inner.starts_with("UInt") {
-                // Large integers come as strings in JSONCompact
-                Value::Int(s.parse().unwrap_or(0))
+                // 64-bit and wider integers come as strings in JSONCompact; Int128/UInt64
+                // values beyond i64 stay exact as text instead of becoming 0.
+                s.parse().map_or(Value::Decimal(s), Value::Int)
             } else {
                 Value::Text(s)
             }
@@ -557,5 +579,18 @@ fn json_to_value(v: serde_json::Value, col_type: &str) -> Value {
                 .collect(),
         ),
         serde_json::Value::Object(map) => Value::Object(map),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn format_only_on_row_returning_statements() {
+        use super::returns_rows;
+        assert!(returns_rows("  /* x */ select 1"));
+        assert!(returns_rows("WITH a AS (SELECT 1) SELECT * FROM a"));
+        assert!(returns_rows("(SELECT 1) UNION ALL (SELECT 2)"));
+        assert!(!returns_rows("INSERT INTO t VALUES (1, 'select')"));
+        assert!(!returns_rows("CREATE TABLE t (a Int8) ENGINE = Memory"));
     }
 }

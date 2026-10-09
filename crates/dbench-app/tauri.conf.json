@@ -28,6 +28,8 @@
     }
   },
   "bundle": {
+    "publisher": "Hadi Haider",
+    "copyright": "Copyright © 2026 Hadi Haider",
     "active": true,
     "targets": "all",
     "icon": [

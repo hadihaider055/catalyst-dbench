@@ -93,7 +93,7 @@ async fn surrealdb() {
     };
     let mut setup = SurrealDriver.connect(&cfg).await.expect("connect");
     setup
-        .execute(&Query::new("CREATE person:one SET name = 'Ada';"))
+        .execute(&Query::new("UPSERT person:one SET name = 'Ada';"))
         .await
         .expect("seed");
     check(
