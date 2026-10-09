@@ -1,3 +1,9 @@
+## [1.5.9](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.8...v1.5.9) (2026-10-09)
+
+### Bug Fixes
+
+* monaco editor usage from dep ([e8d2b93](https://github.com/hadihaider055/catalyst-dbench/commit/e8d2b9391ca57ed31c2bc95b7b8a71715ad92e7e))
+
 ## [1.5.8](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.7...v1.5.8) (2026-10-09)
 
 ### Bug Fixes
