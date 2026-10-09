@@ -1,3 +1,9 @@
+## [1.5.7](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.6...v1.5.7) (2026-10-09)
+
+### Bug Fixes
+
+* **security:** harden read-only guards, ssh args, sql escaping and tls ([9a6d134](https://github.com/hadihaider055/catalyst-dbench/commit/9a6d134c08cd74bcf23d11a3a22ab65dcb6c68f8))
+
 ## [1.5.6](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.5...v1.5.6) (2026-10-08)
 
 ### Bug Fixes
