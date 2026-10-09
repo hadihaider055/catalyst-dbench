@@ -1,3 +1,9 @@
+## [1.5.8](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.7...v1.5.8) (2026-10-09)
+
+### Bug Fixes
+
+* rm old cached bundles ([74fcc6f](https://github.com/hadihaider055/catalyst-dbench/commit/74fcc6fd6407399825b93f129b66ca46a20919ae))
+
 ## [1.5.7](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.6...v1.5.7) (2026-10-09)
 
 ### Bug Fixes
