@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
+import DbIcon from "@/components/DbIcon";
 import { X, TestTube, Save, Eye, EyeOff, Lock, Link, ChevronDown } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
 import { addConnection, testConnection, storeCredential, getCredential } from "@/lib/commands";
-import { cn, dbIcon } from "@/lib/utils";
+import {cn} from "@/lib/utils";
 import type { DatabaseType, SavedConnection } from "@/lib/types";
 import { DB_LABELS, DB_DEFAULTS } from "@/lib/types";
 
@@ -318,7 +319,7 @@ export default function ConnectionDialog({ onClose, existing, reconnect }: Props
                   )}
                   onClick={() => handleDbTypeChange(t)}
                 >
-                  <span className="text-lg">{dbIcon(t)}</span>
+                  <DbIcon type={t} className="text-lg" />
                   <span className="truncate w-full text-center">
                     {DB_LABELS[t]?.split(" / ")[0] ?? t}
                   </span>

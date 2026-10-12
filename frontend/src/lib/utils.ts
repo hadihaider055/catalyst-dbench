@@ -24,15 +24,6 @@ export function dbColor(type: DatabaseType): string {
   return map[type] ?? "#6a6a6a";
 }
 
-export function dbIcon(type: DatabaseType): string {
-  const map: Partial<Record<DatabaseType, string>> = {
-    postgres: "🐘", mysql: "🐬", sqlite: "🗃️",
-    mongodb: "🍃", redis: "🔴", cockroachdb: "🪳",
-    clickhouse: "🖱️", elasticsearch: "🔍", cassandra: "👁️",
-    dynamodb: "⚡", surrealdb: "🌀", mssql: "🪟", oracle: "🔶",
-  };
-  return map[type] ?? "🗄️";
-}
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;

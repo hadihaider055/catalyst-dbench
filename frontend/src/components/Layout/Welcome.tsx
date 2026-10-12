@@ -1,7 +1,8 @@
 import { useState } from "react";
+import appIcon from "@/assets/app-icon.svg";
+import DbIcon from "@/components/DbIcon";
 import { useAppStore } from "@/stores/useAppStore";
 import { getCredential } from "@/lib/commands";
-import { dbIcon } from "@/lib/utils";
 import type { SavedConnection } from "@/lib/types";
 import ConnectionDialog from "../ConnectionDialog/index";
 
@@ -35,7 +36,7 @@ export default function Welcome() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-6 text-text-secondary">
       <div className="text-center">
-        <div className="text-4xl mb-3">🗄️</div>
+        <img src={appIcon} alt="" className="w-16 h-16 mx-auto mb-3" />
         <h2 className="text-lg font-semibold text-text-primary mb-1">
           Catalyst DBench
         </h2>
@@ -56,7 +57,7 @@ export default function Welcome() {
                 onClick={() => handleConnect(conn)}
                 disabled={isConnecting}
               >
-                <span className="flex-shrink-0">{dbIcon(conn.db_type)}</span>
+                <DbIcon type={conn.db_type} />
                 <span className="font-medium flex-1 text-ellipsis whitespace-nowrap overflow-hidden">
                   {conn.name}
                 </span>

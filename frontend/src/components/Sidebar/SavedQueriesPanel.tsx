@@ -1,8 +1,9 @@
 import { useState } from "react";
+import DbIcon from "@/components/DbIcon";
 import { Search, Trash2, Play, Copy } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
 import { executeQuery } from "@/lib/commands";
-import { cn, dbIcon } from "@/lib/utils";
+import {cn} from "@/lib/utils";
 import type { SavedQuery } from "@/lib/types";
 
 export default function SavedQueriesPanel() {
@@ -95,7 +96,7 @@ function QueryRow({
       onClick={() => onOpen(query)}
     >
       {query.db_type && (
-        <span className="text-xs flex-shrink-0">{dbIcon(query.db_type)}</span>
+        <DbIcon type={query.db_type} className="text-xs" />
       )}
       <div className="flex-1 min-w-0">
         <div className="text-2xs font-medium text-text-primary truncate">{query.name}</div>

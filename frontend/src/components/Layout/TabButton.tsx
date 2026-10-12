@@ -1,5 +1,6 @@
 import { useAppStore } from "@/stores/useAppStore";
-import { cn, dbIcon } from "@/lib/utils";
+import DbIcon from "@/components/DbIcon";
+import {cn} from "@/lib/utils";
 import type { QueryTab } from "@/lib/types";
 
 export default function TabButton({ tab }: { tab: QueryTab }) {
@@ -17,7 +18,7 @@ export default function TabButton({ tab }: { tab: QueryTab }) {
       onClick={() => setActiveTab(tab.id)}
       title={`${tab.title} — ${tab.connection_name}`}
     >
-      <span className="flex-shrink-0 text-[10px] opacity-60">{dbIcon(tab.db_type)}</span>
+      <DbIcon type={tab.db_type} className="text-[11px]" />
       <span className="truncate flex-1 min-w-0">{tab.title}</span>
       {tab.running && <span className="text-accent animate-pulse flex-shrink-0">●</span>}
       <span

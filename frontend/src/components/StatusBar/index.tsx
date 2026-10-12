@@ -1,6 +1,6 @@
 import { Shield, Database, Lock } from "lucide-react";
+import DbIcon from "@/components/DbIcon";
 import { useAppStore } from "@/stores/useAppStore";
-import { dbIcon } from "@/lib/utils";
 
 export default function StatusBar() {
   const { activeConnections, selectedConnectionId, tabs, activeTabId } = useAppStore();
@@ -15,7 +15,7 @@ export default function StatusBar() {
       {conn ? (
         <>
           <span className="flex items-center gap-1">
-            <span>{dbIcon(conn.db_type)}</span>
+            <DbIcon type={conn.db_type} />
             <span className="font-medium">{conn.host}:{conn.port}</span>
           </span>
           <span className="text-blue-200">{conn.database}</span>

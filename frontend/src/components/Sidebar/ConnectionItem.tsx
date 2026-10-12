@@ -1,7 +1,8 @@
 import { useState } from "react";
+import DbIcon from "@/components/DbIcon";
 import { Plug, PlugZap, Trash2, Eye, Copy, Database, Lock } from "lucide-react";
 import { useAppStore } from "@/stores/useAppStore";
-import { cn, dbIcon, dbColor } from "@/lib/utils";
+import {cn} from "@/lib/utils";
 import { removeConnection } from "@/lib/commands";
 import type { SavedConnection } from "@/lib/types";
 import ContextMenu, { type ContextMenuEntry } from "../ContextMenu/index";
@@ -101,12 +102,7 @@ export default function ConnectionItem({
           setCtxMenu({ x: e.clientX, y: e.clientY });
         }}
       >
-        <span
-          className="text-sm flex-shrink-0"
-          style={{ filter: `drop-shadow(0 0 3px ${dbColor(conn.db_type)})` }}
-        >
-          {dbIcon(conn.db_type)}
-        </span>
+        <DbIcon type={conn.db_type} className="text-sm" />
 
         <span className="flex-1 text-xs text-text-primary truncate font-medium">
           {conn.name}

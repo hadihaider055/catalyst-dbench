@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3FA9FF"/><stop offset="0.5" stop-color="#0066CC"/><stop offset="1" stop-color="#1A2F9E"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.28" cy="0.18" r="0.85">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0 H0 V64" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
+    </pattern>
+    <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+    <clipPath id="body"><path d="M290 262 V707.6 A222 72 0 0 0 734 707.6 V262 A222 72 0 0 0 290 262 Z"/></clipPath>
+    <linearGradient id="side" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.45" stop-color="#EEF5FF"/><stop offset="1" stop-color="#B9D3F3"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#DCEAFD"/>
+    </linearGradient>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#FFFFFF"/>
+      <g fill="none" stroke="#000000" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"><polyline points="420,450.8 316,562.8 420,674.8"/>
+      <polyline points="604,450.8 708,562.8 604,674.8"/>
+      <polygon points="578,412.8 458,580.8 516,580.8 448,714.8 578,540.8 520,540.8" fill="#000000" stroke="#000000" stroke-width="12" stroke-linejoin="round"/></g>
+    </mask>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#001B3D" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" fill="url(#grid)" clip-path="url(#sq)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
+
+  <!-- Inner walls of the cut, only inside the database outline -->
+  <g clip-path="url(#body)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#06306E" stroke-width="50"><polyline points="420,450.8 316,562.8 420,674.8"/>
+      <polyline points="604,450.8 708,562.8 604,674.8"/>
+      <polygon points="578,412.8 458,580.8 516,580.8 448,714.8 578,540.8 520,540.8" fill="#06306E" stroke="#06306E" stroke-width="12" stroke-linejoin="round"/></g>
+    <g stroke="#1677E0" stroke-width="44"><polyline points="426,458.8 322,570.8 426,682.8"/>
+      <polyline points="610,458.8 714,570.8 610,682.8"/>
+      <polygon points="581,417.8 461,585.8 519,585.8 451,719.8 581,545.8 523,545.8" fill="#1677E0" stroke="none"/></g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <g mask="url(#cut)">
+      <path fill="url(#side)" d="M290 579.6 v128 c0 39.6 99.9 72 222 72 s222 -32.4 222 -72 v-128 c0 39.6 -122.1 72 -222 72 s-222 -32.4 -222 -72z"/>
+      <path fill="url(#side)" d="M290 431.6 v128 c0 39.6 99.9 72 222 72 s222 -32.4 222 -72 v-128 c0 39.6 -122.1 72 -222 72 s-222 -32.4 -222 -72z"/>
+      <path fill="url(#side)" d="M290 283.6 v128 c0 39.6 99.9 72 222 72 s222 -32.4 222 -72 v-128 c0 39.6 -122.1 72 -222 72 s-222 -32.4 -222 -72z"/>
+      <ellipse cx="512" cy="262" rx="222" ry="72" fill="url(#cap)"/>
+    </g>
+  </g>
+  <ellipse cx="512" cy="262" rx="164" ry="45" fill="#0078D4" opacity="0.14"/>
+</svg>
