@@ -1,3 +1,9 @@
+## [1.6.0](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.9...v1.6.0) (2026-10-12)
+
+### Features
+
+* **ui:** app and database logos ([fc40f3f](https://github.com/hadihaider055/catalyst-dbench/commit/fc40f3fa25eb464c5b9aa5d017e5d2230d1432ff))
+
 ## [1.5.9](https://github.com/hadihaider055/catalyst-dbench/compare/v1.5.8...v1.5.9) (2026-10-09)
 
 ### Bug Fixes
